@@ -1,0 +1,24 @@
+# Gradle
+.gradle/
+build/
+.kotlin/
+*.apk
+*.aab
+
+# Android / local
+local.properties
+captures/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Signing keys / secrets
+*.jks
+*.keystore
+*.key

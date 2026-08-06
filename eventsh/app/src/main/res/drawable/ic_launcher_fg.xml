@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- pixel lightning bolt trigger icon -->
+    <path
+        android:fillColor="#00FF6E"
+        android:pathData="M60,20 L38,58 L52,58 L46,88 L72,48 L56,48 Z" />
+    <path
+        android:fillColor="#0A1A10"
+        android:pathData="M40,66 l4,-8 l8,0 l-4,14 l10,-2 l-8,12 l14,-20 l-12,0 l4,-6 Z" />
+</vector>

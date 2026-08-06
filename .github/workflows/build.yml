@@ -1,0 +1,60 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  build:
+    name: Build EVENTSH release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant gradlew exec permission
+        run: chmod +x eventsh/gradlew
+
+      # Optional signing: if EVENTSH_KEYSTORE_B64 secret is set, restore the
+      # keystore and sign the release. Otherwise an unsigned release is built.
+      - name: Restore signing keystore
+        id: keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.EVENTSH_KEYSTORE_B64 }}
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > eventsh/eventsh.jks
+
+      - name: Build release APK
+        working-directory: eventsh
+        env:
+          EVENTSH_KEYSTORE: ../eventsh.jks
+          EVENTSH_STORE_PASSWORD: ${{ secrets.EVENTSH_STORE_PASSWORD }}
+          EVENTSH_KEY_ALIAS: ${{ secrets.EVENTSH_KEY_ALIAS }}
+          EVENTSH_KEY_PASSWORD: ${{ secrets.EVENTSH_KEY_PASSWORD }}
+        run: |
+          if [ -f eventsh.jks ]; then
+            ./gradlew assembleRelease
+          else
+            ./gradlew assembleRelease assembleDebug
+          fi
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: eventsh-apk
+          path: |
+            eventsh/app/build/outputs/apk/release/*.apk
+            eventsh/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
