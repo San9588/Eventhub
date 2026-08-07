@@ -6,15 +6,22 @@ import android.app.AlertDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.Debug
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
+import android.widget.BaseAdapter
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
 import com.eventsh.app.engine.AppCtx
@@ -604,26 +611,80 @@ class MainActivity : Activity() {
 
     private fun appPick(selected: Set<String>, onDone: (List<String>) -> Unit) {
         val pm = packageManager
-        val apps = try {
+        val all = try {
             pm.getInstalledApplications(0)
                 .filter { it.packageName != packageName }
-                .sortedBy {
-                    (pm.getApplicationLabel(it)?.toString() ?: it.packageName).lowercase()
-                }
         } catch (e: Exception) {
             emptyList()
         }
-        val labels = apps.map { ai ->
+        fun label(ai: ApplicationInfo): String {
             val l = pm.getApplicationLabel(ai)?.toString() ?: ai.packageName
-            if (l.equals(ai.packageName, true)) l else "$l  [${ai.packageName}]"
+            return if (l.equals(ai.packageName, true)) l else "$l  [${ai.packageName}]"
         }
-        val pkgs = apps.map { it.packageName }
-        val checked = BooleanArray(apps.size) { selected.contains(pkgs[it]) }
+        fun isSystem(ai: ApplicationInfo) = (ai.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+        val user = all.filter { !isSystem(it) }.sortedBy { label(it).lowercase() }
+        val system = all.filter { isSystem(it) }.sortedBy { label(it).lowercase() }
+        val checked = selected.toMutableSet()
+        // rows: String header or ApplicationInfo
+        val rows = ArrayList<Any>()
+        if (user.isNotEmpty()) {
+            rows.add("USER APPS (${user.size})")
+            rows.addAll(user)
+        }
+        if (system.isNotEmpty()) {
+            rows.add("SYSTEM APPS (${system.size})")
+            rows.addAll(system)
+        }
+        val lv = ListView(this)
+        lv.adapter = object : BaseAdapter() {
+            override fun getCount() = rows.size
+            override fun getItem(pos: Int) = rows[pos]
+            override fun getItemId(pos: Int) = pos.toLong()
+            override fun getItemViewType(pos: Int) = if (rows[pos] is String) 0 else 1
+            override fun getViewTypeCount() = 2
+            override fun isEnabled(pos: Int) = rows[pos] !is String
+            override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
+                val r = rows[pos]
+                if (r is String) {
+                    return TextView(this@MainActivity).apply {
+                        text = r
+                        textSize = 13f
+                        setTypeface(typeface, Typeface.BOLD)
+                        setTextColor(0xFF00FF6E.toInt())
+                        setPadding(12, 14, 12, 4)
+                        setBackgroundColor(0xFF0A1F12.toInt())
+                    }
+                }
+                val ai = r as ApplicationInfo
+                val cb = CheckBox(this@MainActivity).apply {
+                    isChecked = checked.contains(ai.packageName)
+                    isClickable = false
+                    isFocusable = false
+                }
+                val tv = TextView(this@MainActivity).apply {
+                    text = label(ai)
+                    textSize = 15f
+                    setTextColor(0xFFD7D7D7.toInt())
+                }
+                return LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(8, 8, 8, 8)
+                    setBackgroundColor(0xFF071209.toInt())
+                    addView(cb)
+                    addView(tv)
+                    setOnClickListener {
+                        if (!checked.remove(ai.packageName)) checked.add(ai.packageName)
+                        cb.isChecked = checked.contains(ai.packageName)
+                    }
+                }
+            }
+        }
         AlertDialog.Builder(this)
-            .setTitle("SELECT APPS (${apps.size})")
-            .setMultiChoiceItems(labels.toTypedArray(), checked) { _, i, ch -> checked[i] = ch }
+            .setTitle("SELECT APPS (${all.size})")
+            .setView(lv)
             .setPositiveButton("OK") { _, _ ->
-                onDone(pkgs.filterIndexed { i, _ -> checked[i] })
+                onDone(rows.filter { it is ApplicationInfo }.map { (it as ApplicationInfo).packageName }.filter { checked.contains(it) })
             }
             .setNegativeButton("CANCEL", null)
             .show()

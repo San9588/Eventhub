@@ -157,30 +157,16 @@ object Dispatcher {
 
     /**
      * Runs a Termux script named [taskName] (i.e. ~/.termux/tasker/<name>.sh).
-     * Prefers the Termux:Tasker plugin broadcast; falls back to the Termux
-     * RUN_COMMAND intent so the plugin is NOT required (just Termux app with
-     * allow-external-apps enabled).
+     * PRIMARY: Termux's official com.termux.RUN_COMMAND service (no third-party
+     * plugin, args travel via intent = no disk writes). FALLBACK: the
+     * Termux:Tasker plugin broadcast. RUN_COMMAND needs "Allow external apps"
+     * enabled in Termux settings.
      */
     private fun termuxTask(
         ctx: Context, taskName: String, vars: Map<String, String>, event: String, summary: String
     ): Boolean {
-        // 1) Termux:Tasker plugin protocol
+        // 1) Termux RUN_COMMAND (official API, no plugin needed)
         try {
-            ctx.packageManager.getPackageInfo("com.termux.tasker", 0)
-            val b = Bundle().apply { vars.forEach { (k, v) -> putString(k, v) } }
-            val i = Intent(ACTION_TASKER_REQ).apply {
-                setPackage("com.termux.tasker")
-                putExtra(EXTRA_TASKER_INTENT, taskName)
-                putExtra(EXTRA_TASKER_MSG, "$event:$summary")
-                putExtra(EXTRA_TASKER_BUNDLE, b)
-            }
-            ctx.sendBroadcast(i)
-            return true
-        } catch (e: Exception) {
-            Log.w(TAG, "tasker plugin not available, trying RUN_COMMAND", e)
-        }
-        // 2) Termux RUN_COMMAND fallback (no plugin needed)
-        return try {
             ctx.packageManager.getPackageInfo("com.termux", 0)
             val home = "/data/data/com.termux/files/home"
             val i = Intent("com.termux.RUN_COMMAND").apply {
@@ -194,9 +180,25 @@ object Dispatcher {
                 putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
             }
             ctx.startService(i)
+            return true
+        } catch (e: Exception) {
+            EventLog.push("[$taskName] termux RUN_COMMAND failed: enable 'Allow external apps' in Termux")
+            Log.w(TAG, "termux RUN_COMMAND failed", e)
+        }
+        // 2) Termux:Tasker plugin fallback
+        return try {
+            ctx.packageManager.getPackageInfo("com.termux.tasker", 0)
+            val b = Bundle().apply { vars.forEach { (k, v) -> putString(k, v) } }
+            val i = Intent(ACTION_TASKER_REQ).apply {
+                setPackage("com.termux.tasker")
+                putExtra(EXTRA_TASKER_INTENT, taskName)
+                putExtra(EXTRA_TASKER_MSG, "$event:$summary")
+                putExtra(EXTRA_TASKER_BUNDLE, b)
+            }
+            ctx.sendBroadcast(i)
             true
         } catch (e: Exception) {
-            Log.w(TAG, "termux RUN_COMMAND failed", e)
+            Log.w(TAG, "tasker plugin not available", e)
             false
         }
     }
