@@ -38,4 +38,24 @@ object EventCatalog {
         "timer.daily",
         "shell_event"
     )
+
+    /**
+     * Filterable per-event parameters, Tasker-style Event Edit.
+     * key -> label shown in the event dialog. Values are pattern matches.
+     * "value" on ram_pct/disk_free is numeric (min % / max MB).
+     */
+    val PARAMS: Map<String, List<Pair<String, String>>> = mapOf(
+        "sms" to listOf("from" to "From", "body" to "Content"),
+        "notify_post" to listOf("pkg" to "Package", "title" to "Title"),
+        "wifi_conn" to listOf("ssid" to "SSID"),
+        "app_open" to listOf("pkg" to "Package"),
+        "app_close" to listOf("pkg" to "Package"),
+        "fg_app" to listOf("pkg" to "Package"),
+        "app_install" to listOf("pkg" to "Package"),
+        "app_remove" to listOf("pkg" to "Package"),
+        "app_update" to listOf("pkg" to "Package"),
+        "var.state" to listOf("name" to "Name", "value" to "Value"),
+        "ram_pct" to listOf("value" to "Min %"),
+        "disk_free" to listOf("value" to "Max MB")
+    )
 }

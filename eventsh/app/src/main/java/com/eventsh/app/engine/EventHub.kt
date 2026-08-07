@@ -111,10 +111,25 @@ object EventHub {
     }
 
     private fun passesFilter(r: Rule, event: String, data: Map<String, String>): Boolean {
-        // the filter that applies is the one on the EventCtx that matched this event
-        val filter = r.contexts.filterIsInstance<EventCtx>()
-            .firstOrNull { it.action == event }?.filter
-            ?: r.filter
+        // Tasker-style per-parameter filters, each matched against its own data key
+        val ev = r.contexts.filterIsInstance<EventCtx>().firstOrNull { it.action == event }
+        ev?.params?.forEach { (key, pat) ->
+            val v = data[key]
+            if (v == null) return false
+            val num = pat.toLongOrNull()
+            val dv = v.toLongOrNull()
+            if (key == "value" && num != null && dv != null) {
+                when (event) {
+                    "ram_pct" -> if (dv < num) return false
+                    "disk_free" -> if (dv > num) return false
+                    else -> if (!summaryMatches(pat, v)) return false
+                }
+            } else {
+                if (!summaryMatches(pat, v)) return false
+            }
+        }
+        // legacy single summary filter (back-compat with old rules)
+        val filter = ev?.filter ?: r.filter
         if (filter.isBlank()) return true
         val num = filter.toLongOrNull()
         val value = data["value"]?.toLongOrNull()
@@ -195,9 +210,10 @@ object EventHub {
                         }
                     }
                     "android.provider.Telephony.SMS_RECEIVED" -> {
-                        val from = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-                            .firstOrNull()?.getOriginatingAddress() ?: "?"
-                        dispatch("sms", mapOf("summary" to "SMS from $from", "from" to from))
+                        val sms = Telephony.Sms.Intents.getMessagesFromIntent(intent).firstOrNull()
+                        val from = sms?.getOriginatingAddress() ?: "?"
+                        val body = sms?.displayMessageBody ?: ""
+                        dispatch("sms", mapOf("summary" to "SMS from $from", "from" to from, "body" to body))
                     }
                     BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED -> {
                         val state = intent.getIntExtra(BluetoothAdapter.EXTRA_CONNECTION_STATE, -1)

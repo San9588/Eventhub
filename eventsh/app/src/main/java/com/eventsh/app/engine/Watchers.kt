@@ -74,7 +74,7 @@ object Watchers {
                 val rules = RuleStore.load(ctx)
                 val ramFilter = rules
                     .filter { it.enabled && it.hasEvent("ram_pct") }
-                    .mapNotNull { it.eventContext?.filter?.toIntOrNull() }
+                    .mapNotNull { it.eventContext?.let { c -> (c.params["value"] ?: c.filter).toIntOrNull() } }
                     .firstOrNull()
                 if (ramFilter != null) {
                     val (_, pct) = SysStats.mem()
@@ -82,7 +82,7 @@ object Watchers {
                 }
                 val diskFilter = rules
                     .filter { it.enabled && it.hasEvent("disk_free") }
-                    .mapNotNull { it.eventContext?.filter?.toLongOrNull() }
+                    .mapNotNull { it.eventContext?.let { c -> (c.params["value"] ?: c.filter).toLongOrNull() } }
                     .firstOrNull()
                 if (diskFilter != null) {
                     val freeMb = SysStats.diskFreeMb()

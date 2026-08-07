@@ -446,14 +446,43 @@ class MainActivity : Activity() {
 
     private fun eventCtxDialog(existing: EventCtx?, onSave: (EventCtx) -> Unit, onRemove: (() -> Unit)?) {
         var action = existing?.action ?: ""
+        var params = HashMap<String, String>(existing?.params ?: emptyMap())
+        val paramEt = HashMap<String, EditText>()
+        val paramsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        fun rebuildParams() {
+            paramEt.clear()
+            paramsBox.removeAllViews()
+            EventCatalog.PARAMS[action]?.forEach { (key, label) ->
+                paramsBox.addView(TextView(this).apply {
+                    text = label
+                    textSize = 14f
+                    setPadding(8, 12, 8, 0)
+                    setTextColor(0xFF00FF6E.toInt())
+                })
+                val et = editText("pattern ($key, * + / ! supported)")
+                params[key]?.let { et.setText(it) }
+                paramEt[key] = et
+                paramsBox.addView(et)
+            }
+        }
+        rebuildParams()
+
         val actionTv = TextView(this).apply {
             textSize = 16f
             setPadding(8, 14, 8, 14)
-            text = if (action.isBlank()) "(choose event)" else action
+            text = if (action.isBlank()) "(tap to choose event)" else action
             setTextColor(0xFF00FF6E.toInt())
-            setOnClickListener { pickEvent { ev -> action = ev; text = ev } }
+            setOnClickListener {
+                pickEvent { ev ->
+                    action = ev
+                    text = ev
+                    params = HashMap()
+                    rebuildParams()
+                }
+            }
         }
-        val filterEt = editText("filter (* pattern, / OR, ! NOT, num)")
+        val filterEt = editText("custom summary filter (advanced)")
         val prioEt = editText("priority (5)")
         val stopCb = checkBox("stop event (consume for other profiles)")
         if (existing != null) {
@@ -464,6 +493,7 @@ class MainActivity : Activity() {
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(actionTv)
+            addView(paramsBox)
             addView(filterEt)
             addView(prioEt)
             addView(stopCb)
@@ -477,10 +507,16 @@ class MainActivity : Activity() {
                     EventLog.push("[ui] choose an event first")
                     return@setPositiveButton
                 }
+                val saved = HashMap<String, String>()
+                paramEt.forEach { (k, et) ->
+                    val v = et.text.toString().trim()
+                    if (v.isNotBlank()) saved[k] = v
+                }
                 onSave(
                     EventCtx(
                         action = action,
                         filter = filterEt.text.toString().trim(),
+                        params = saved,
                         priority = (prioEt.text.toString().toIntOrNull() ?: 5).coerceIn(1, 10),
                         stopEvent = stopCb.isChecked
                     )

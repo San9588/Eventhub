@@ -29,12 +29,25 @@ sealed class Ctx {
         const val APP = "app"
 
         fun fromJson(o: JSONObject): Ctx? = when (o.optString("type")) {
-            EVENT -> EventCtx(
-                action = o.optString("action"),
-                filter = o.optString("filter"),
-                priority = o.optInt("prio", 5),
-                stopEvent = o.optBoolean("stop")
-            )
+            EVENT -> {
+                val po = o.optJSONObject("params")
+                val params = if (po == null) emptyMap() else run {
+                    val m = mutableMapOf<String, String>()
+                    val ks = po.keys()
+                    while (ks.hasNext()) {
+                        val k = ks.next()
+                        m[k] = po.getString(k)
+                    }
+                    m
+                }
+                EventCtx(
+                    action = o.optString("action"),
+                    filter = o.optString("filter"),
+                    params = params,
+                    priority = o.optInt("prio", 5),
+                    stopEvent = o.optBoolean("stop")
+                )
+            }
             TIME -> TimeCtx(
                 from = o.optString("from"),
                 to = o.optString("to"),
@@ -73,15 +86,27 @@ sealed class Ctx {
 data class EventCtx(
     val action: String,
     val filter: String = "",
+    val params: Map<String, String> = emptyMap(),
     val priority: Int = 5,
     val stopEvent: Boolean = false
 ) : Ctx() {
     override val type get() = Ctx.EVENT
-    override fun summary(): String = if (filter.isBlank()) action else "$action  / $filter"
+    override fun summary(): String {
+        if (params.isNotEmpty()) {
+            val p = params.entries.joinToString(" ") { "${it.key}=${it.value}" }
+            return "$action  / $p"
+        }
+        return if (filter.isBlank()) action else "$action  / $filter"
+    }
     override fun toJson() = JSONObject().apply {
         put("type", type)
         put("action", action)
         put("filter", filter)
+        if (params.isNotEmpty()) {
+            val po = JSONObject()
+            params.forEach { (k, v) -> po.put(k, v) }
+            put("params", po)
+        }
         put("prio", priority)
         put("stop", stopEvent)
     }
