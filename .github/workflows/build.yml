@@ -44,17 +44,20 @@ jobs:
           EVENTSH_KEY_ALIAS: ${{ secrets.EVENTSH_KEY_ALIAS }}
           EVENTSH_KEY_PASSWORD: ${{ secrets.EVENTSH_KEY_PASSWORD }}
         run: |
+          set -o pipefail
           if [ -f eventsh.jks ]; then
-            ./gradlew assembleRelease
+            ./gradlew assembleRelease --stacktrace 2>&1 | tee build.log
           else
-            ./gradlew assembleRelease assembleDebug
+            ./gradlew assembleRelease assembleDebug --stacktrace 2>&1 | tee build.log
           fi
 
-      - name: Upload APKs
+      - name: Upload APKs and build logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: eventsh-apk
           path: |
             eventsh/app/build/outputs/apk/release/*.apk
             eventsh/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+            eventsh/build.log
+          if-no-files-found: warn
