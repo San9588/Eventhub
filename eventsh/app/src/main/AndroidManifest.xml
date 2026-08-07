@@ -17,7 +17,10 @@
 
     <!-- see all installed apps (app picker) -->
     <queries>
-        <package android:name="*" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <application
