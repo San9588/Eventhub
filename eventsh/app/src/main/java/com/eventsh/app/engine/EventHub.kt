@@ -10,11 +10,12 @@ import android.os.BatteryManager
 import android.os.Build
 import android.provider.Telephony
 import android.telephony.TelephonyManager
+import java.util.concurrent.ConcurrentHashMap
 
 object EventHub {
     private var context: Context? = null
     private val receiver = Receiver()
-    private val lastFire = HashMap<String, Long>()
+    private val lastFire = ConcurrentHashMap<String, Long>()
     private var regIntent = IntentFilter()
     private val standard = mutableSetOf(
         Intent.ACTION_SCREEN_ON,
@@ -45,7 +46,11 @@ object EventHub {
             regIntent = IntentFilter()
             standard.forEach { regIntent.addAction(it) }
             custom.forEach { regIntent.addAction(it) }
-            ctx.registerReceiver(receiver, regIntent)
+            if (Build.VERSION.SDK_INT >= 33) {
+                ctx.registerReceiver(receiver, regIntent, Context.RECEIVER_EXPORTED)
+            } else {
+                ctx.registerReceiver(receiver, regIntent)
+            }
         }
         EventLog.push("[hub] receiver registered (${standard.size + custom.size} actions)")
     }
@@ -72,6 +77,10 @@ object EventHub {
 
     fun dispatch(event: String, data: Map<String, String>) {
         val ctx = context ?: return
+        fireDirect(ctx, event, data)
+    }
+
+    fun fireDirect(ctx: Context, event: String, data: Map<String, String>) {
         val rules = RuleStore.load(ctx).filter { it.enabled && it.event == event }
         if (rules.isEmpty()) return
         val now = System.currentTimeMillis()
@@ -79,11 +88,24 @@ object EventHub {
             val last = lastFire[r.id] ?: 0L
             val waitMs = r.cooldownSec * 1000L + r.debounceMs
             if (now - last < waitMs) continue
-            // filter check (e.g. WIFI.CONN filter = ssid)
-            if (r.filter.isNotBlank() && data["summary"]?.contains(r.filter, true) == false) continue
+            if (!passesFilter(r, data)) continue
             lastFire[r.id] = now
             Dispatcher.fire(ctx, r, event, data)
         }
+    }
+
+    private fun passesFilter(r: Rule, data: Map<String, String>): Boolean {
+        if (r.filter.isBlank()) return true
+        val num = r.filter.toLongOrNull()
+        val value = data["value"]?.toLongOrNull()
+        if (num != null && value != null) {
+            return when (r.event) {
+                "ram_pct" -> value >= num
+                "disk_free" -> value <= num
+                else -> data["summary"]?.contains(r.filter, true) == true
+            }
+        }
+        return data["summary"]?.contains(r.filter, true) == true
     }
 
     fun batteryNow(ctx: Context): Int {

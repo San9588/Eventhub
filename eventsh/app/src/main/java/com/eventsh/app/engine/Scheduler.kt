@@ -48,14 +48,13 @@ object Scheduler {
         if (!rule.enabled) return
         val event = if (rule.isDailyTimer) "timer.daily" else "timer.one"
         val data = mapOf("summary" to rule.label, "timer" to rule.id)
-        Dispatcher.fire(ctx, rule, event, data)
-        EventHub.dispatch(event, data)
         if (rule.isOneShotTimer) {
-            // one-shot: fire once then remove; daily re-arms itself on next fire
             RuleStore.save(ctx, rules.toMutableList().apply { remove(rule) })
         } else if (rule.isDailyTimer) {
             schedule(ctx, rule)
         }
+        Dispatcher.fire(ctx, rule, event, data)
+        EventHub.dispatch(event, data)
     }
 
     private fun fireIntent(ctx: Context, rule: Rule): PendingIntent {

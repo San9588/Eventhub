@@ -66,16 +66,12 @@ object Watchers {
                 val ramRules = rules.filter { it.enabled && it.event == "ram_pct" && it.filter.toIntOrNull() != null }
                 if (ramRules.isNotEmpty()) {
                     val (_, pct) = SysStats.mem()
-                    for (r in ramRules) {
-                        if (pct >= r.filter.toInt()) EventHub.dispatch("ram_pct", mapOf("summary" to "$pct%"))
-                    }
+                    EventHub.dispatch("ram_pct", mapOf("summary" to "$pct%", "value" to pct.toString()))
                 }
                 val diskRules = rules.filter { it.enabled && it.event == "disk_free" && it.filter.toLongOrNull() != null }
                 if (diskRules.isNotEmpty()) {
                     val freeMb = SysStats.diskFreeMb()
-                    for (r in diskRules) {
-                        if (freeMb <= r.filter.toLong()) EventHub.dispatch("disk_free", mapOf("summary" to "${freeMb}MB"))
-                    }
+                    EventHub.dispatch("disk_free", mapOf("summary" to "${freeMb}MB", "value" to freeMb.toString()))
                 }
                 Thread.sleep(30000)
             } catch (e: InterruptedException) {
