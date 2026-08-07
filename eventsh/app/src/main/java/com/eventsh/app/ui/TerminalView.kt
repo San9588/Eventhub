@@ -3,6 +3,7 @@ package com.eventsh.app.ui
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Typeface
 import android.view.MotionEvent
 import android.view.View
 import com.eventsh.app.engine.Rule
@@ -43,6 +44,9 @@ class TerminalView(context: Context) : View(context) {
 
     private var scrollY = 0f
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.MONOSPACE
+    }
 
     private val pp: Float
         get() = (resources.displayMetrics.density * 2f).toInt().coerceAtLeast(3).toFloat()
@@ -67,27 +71,20 @@ class TerminalView(context: Context) : View(context) {
     // ------------------------------------------------------------- helpers
     private fun drawText(c: Canvas, text: String, x: Float, y: Float, scale: Int, color: Int, bg: Int? = null) {
         val u = pp.toFloat()
-        var cx = x
-        for (ch in text) {
-            val g = PixelFont.GLYPHS[ch] ?: PixelFont.GLYPHS[' ']!!
-            if (bg != null) {
-                paint.color = bg
-                c.drawRect(cx * u, y * u, (cx + 5 * scale) * u, (y + 7 * scale) * u, paint)
-            }
-            paint.color = color
-            for (gy in 0 until 7) {
-                for (gx in 0 until 5) {
-                    if (g[gy][gx] == '#') {
-                        c.drawRect((cx + gx * scale) * u, (y + gy * scale) * u,
-                            (cx + (gx + 1) * scale) * u, (y + (gy + 1) * scale) * u, paint)
-                    }
-                }
-            }
-            cx += 5 * scale
+        textPaint.textSize = 7f * scale * u
+        textPaint.color = color
+        if (bg != null) {
+            paint.color = bg
+            c.drawRect(x * u, y * u, (x + textWidth(text, scale)) * u, (y + 9f * scale) * u, paint)
         }
+        c.drawText(text, x * u, (y + 7.5f * scale) * u, textPaint)
     }
 
-    private fun textWidth(text: String, scale: Int): Float = text.length * 5f * scale
+    private fun textWidth(text: String, scale: Int): Float {
+        val u = pp.toFloat()
+        textPaint.textSize = 7f * scale * u
+        return textPaint.measureText(text) / u
+    }
 
     private fun drawBox(c: Canvas, x: Float, y: Float, w: Float, h: Float, fill: Int, outline: Int) {
         paint.color = fill
