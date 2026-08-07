@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+    <!-- declared BY Termux; caller must request it to use com.termux.RUN_COMMAND -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
     <!-- see all installed apps (app picker) -->
     <queries>
