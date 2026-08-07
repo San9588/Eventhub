@@ -3,6 +3,7 @@ package com.eventsh.app.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.eventsh.app.engine.EventHub
 import com.eventsh.app.engine.EventLog
 import com.eventsh.app.engine.UserVars
 
@@ -20,5 +21,6 @@ class VarReceiver : BroadcastReceiver() {
         UserVars.set(context, name, value)
         val where = if (UserVars.isDiskName(name)) "DISK" else "RAM"
         EventLog.push("[var] $name=$value ($where)")
+        EventHub.dispatch("var.state", mapOf("name" to name, "value" to value, "summary" to "$name=$value"))
     }
 }

@@ -30,7 +30,7 @@ data class Rule(
     val varCtx: VarCtx? get() = contexts.filterIsInstance<VarCtx>().firstOrNull()
     val appCtx: AppCtx? get() = contexts.filterIsInstance<AppCtx>().firstOrNull()
 
-    val hasTrigger: Boolean get() = event.isNotBlank() || timeCtx != null
+    val hasTrigger: Boolean get() = event.isNotBlank() || timeCtx != null || appCtx != null || varCtx != null
 
     /** Human-readable single line describing the trigger context. */
     fun contextLine(): String {

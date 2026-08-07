@@ -81,7 +81,14 @@ object EventHub {
     }
 
     fun fireDirect(ctx: Context, event: String, data: Map<String, String>) {
-        val rules = RuleStore.load(ctx).filter { it.enabled && it.event == event }
+        val rules = RuleStore.load(ctx).filter { r ->
+            r.enabled && (
+                r.event == event ||
+                    // app-only / var-only rules: driven by synthetic state events
+                    (event == "app.state" && r.event.isBlank() && r.timeCtx == null && r.appCtx != null) ||
+                    (event == "var.state" && r.event.isBlank() && r.timeCtx == null && r.varCtx != null)
+                )
+        }
         if (rules.isEmpty()) return
         rules.sortedByDescending { it.eventContext?.priority ?: 5 }
             .forEach { fireRule(ctx, it, event, data) }

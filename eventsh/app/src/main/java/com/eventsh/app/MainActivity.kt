@@ -197,10 +197,12 @@ class MainActivity : Activity() {
             .setPositiveButton("SAVE") { _, _ ->
                 val eventCtx = contexts.filterIsInstance<EventCtx>().firstOrNull()
                 val timeCtx = contexts.filterIsInstance<TimeCtx>().firstOrNull()
+                val appCtx = contexts.filterIsInstance<AppCtx>().firstOrNull()
+                val varCtx = contexts.filterIsInstance<VarCtx>().firstOrNull()
                 val event = eventCtx?.action ?: ""
                 val filter = eventCtx?.filter ?: ""
-                if (event.isBlank() && timeCtx == null) {
-                    EventLog.push("[ui] add an EVENT or TIME context")
+                if (event.isBlank() && timeCtx == null && appCtx == null && varCtx == null) {
+                    EventLog.push("[ui] add an EVENT, TIME, APP or VARIABLE context")
                     return@setPositiveButton
                 }
                 val base = existing ?: Rule(

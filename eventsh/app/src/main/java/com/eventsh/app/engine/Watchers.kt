@@ -48,6 +48,9 @@ object Watchers {
                         }
                         EventHub.dispatch("app_open", mapOf("summary" to pkg, "pkg" to pkg))
                         EventHub.dispatch("fg_app", mapOf("summary" to pkg, "pkg" to pkg))
+                        if (rules.any { it.enabled && it.event.isBlank() && it.timeCtx == null && it.appCtx != null }) {
+                            EventHub.dispatch("app.state", mapOf("summary" to pkg, "pkg" to pkg))
+                        }
                     }
                 } else {
                     lastFg = ""
