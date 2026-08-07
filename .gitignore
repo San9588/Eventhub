@@ -18,6 +18,9 @@ captures/
 __pycache__/
 *.pyc
 
+# Build logs (CI artifacts)
+build.log
+
 # Signing keys / secrets
 *.jks
 *.keystore
