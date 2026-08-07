@@ -234,7 +234,10 @@ object ContextGate {
 
     private fun appMatch(ac: AppCtx, data: Map<String, String>, ctx: Context): Boolean {
         val pkg = data["pkg"] ?: Watchers.foregroundNow()
-        val inList = pkg != null && (ac.packages.isEmpty() || ac.packages.contains(pkg))
+        // empty package list must NOT mean "match any app" (that made a 1-app
+        // rule fire on every foreground change). non-invert: match only listed
+        // apps; invert: match any app EXCEPT listed ones.
+        val inList = pkg != null && ac.packages.contains(pkg)
         return if (ac.invert) !inList else inList
     }
 

@@ -569,13 +569,13 @@ class MainActivity : Activity() {
         val pickTv = TextView(this).apply {
             textSize = 16f
             setPadding(8, 14, 8, 14)
-            text = if (pkgs.isEmpty()) "(select apps)" else "${pkgs.size} selected"
+            text = if (pkgs.isEmpty()) "TAP HERE TO SELECT APPS" else "${pkgs.size} app(s) selected"
             setTextColor(0xFF00FF6E.toInt())
             setOnClickListener {
                 appPick(pkgs) { sel ->
                     pkgs.clear()
                     pkgs.addAll(sel)
-                    text = if (sel.isEmpty()) "(select apps)" else "${sel.size} selected"
+                    text = if (sel.isEmpty()) "TAP HERE TO SELECT APPS" else "${sel.size} app(s) selected"
                 }
             }
         }
@@ -591,6 +591,10 @@ class MainActivity : Activity() {
             .setTitle("APP CONTEXT")
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
+                if (pkgs.isEmpty() && !invCb.isChecked) {
+                    EventLog.push("[ui] select at least one app (or enable invert)")
+                    return@setPositiveButton
+                }
                 onSave(AppCtx(pkgs.toList(), fgCb.isChecked, invCb.isChecked))
             }
             .setNegativeButton("CANCEL", null)
