@@ -179,19 +179,19 @@ class TerminalView(context: Context) : View(context) {
             drawToggle(c, W - 16, y + 1, r.enabled)
             // line 2: context summary (truncated)
             val cl = r.contextLine()
-            val maxW = (W - 18 - 20).coerceAtLeast(4f)
+            val maxW = (W - 38).coerceAtLeast(4f)
             var shown = cl
             if (shown.isNotEmpty()) {
                 while (shown.isNotEmpty() && textWidth(shown, 1) > maxW) shown = shown.dropLast(1)
                 drawText(c, shown, 10f, y + 15, 1, P.TXT)
             }
-            // edit (E) and delete (X) buttons
-            drawBox(c, W - 16, y + 13, 7f, 8f, P.BG2, P.BORDER)
-            drawText(c, "E", W - 15, y + 14, 1, P.GREEN)
-            rowEditRects.add(Box(W - 16, y + 13, 7f, 8f))
-            drawBox(c, W - 8, y + 13, 7f, 8f, P.BG2, P.BORDER)
-            drawText(c, "X", W - 7, y + 14, 1, P.RED)
-            rowDelRects.add(Box(W - 8, y + 13, 7f, 8f))
+            // edit (E) and delete (X) buttons, spaced apart
+            drawBox(c, W - 32, y + 13, 12f, 9f, P.BG2, P.BORDER)
+            drawText(c, "E", W - 31, y + 14, 1, P.GREEN)
+            rowEditRects.add(Box(W - 32, y + 13, 12f, 9f))
+            drawBox(c, W - 17, y + 13, 12f, 9f, P.BG2, P.BORDER)
+            drawText(c, "X", W - 16, y + 14, 1, P.RED)
+            rowDelRects.add(Box(W - 17, y + 13, 12f, 9f))
             i++
         }
         c.restoreToCount(save)

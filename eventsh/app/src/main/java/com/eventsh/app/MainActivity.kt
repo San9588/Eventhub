@@ -46,6 +46,8 @@ class MainActivity : Activity() {
     private lateinit var view: TerminalView
     private val handler = Handler(Looper.getMainLooper())
     private var cpuRef = 0L
+    private var permDialog: AlertDialog? = null
+    private val permRows = mutableListOf<Pair<Permissions.Need, TextView>>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,6 +75,37 @@ class MainActivity : Activity() {
         updateStats()
         EventLog.listener = {
             runOnUiThread { refreshScreen() }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshPermissions()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        refreshPermissions()
+    }
+
+    private fun refreshPermissions() {
+        val d = permDialog ?: return
+        if (!d.isShowing) { permDialog = null; return }
+        var allGranted = true
+        for ((need, tv) in permRows) {
+            if (need.granted(this)) {
+                tv.text = "[ ${need.label} ] OK"
+                tv.setTextColor(0xFF3C7852.toInt())
+            } else {
+                allGranted = false
+            }
+        }
+        if (allGranted) {
+            d.dismiss()
+            permDialog = null
+            EventLog.push("[perm] all set")
         }
     }
 
@@ -186,18 +219,20 @@ class MainActivity : Activity() {
             addView(labelEt)
             addView(sectionLabel("CONTEXTS"))
             addView(ctxBox)
-            addView(sectionLabel("TASK"))
+            addView(sectionLabel("RUN SCRIPT (TERMUX)"))
             addView(taskEt)
             addView(sectionLabel("SEND BROADCAST"))
             addView(sendEt)
             addView(sendXEt)
             addView(sendPEt)
+            addView(sectionLabel("NOTIFY"))
+            addView(notifyCb)
             addView(textEt)
+            addView(sectionLabel("ROOT COMMAND"))
             addView(rootEt)
             addView(sectionLabel("TIMING"))
             addView(cdEt)
             addView(rtEt)
-            addView(notifyCb)
         }
         val scroll = ScrollView(this).apply { addView(ll) }
 
@@ -293,25 +328,30 @@ class MainActivity : Activity() {
             textSize = 13f
             setTextColor(0xFF9DCAAD.toInt())
         })
+        permRows.clear()
         missing.forEach { need ->
-            box.addView(TextView(this).apply {
+            val tv = TextView(this).apply {
                 text = "[ ${need.label} ]  SET"
                 setPadding(0, 28, 0, 2)
                 textSize = 17f
                 setTextColor(0xFF37F08B.toInt())
                 setOnClickListener { need.open(this@MainActivity) }
-            })
+            }
+            box.addView(tv)
             box.addView(TextView(this).apply {
                 text = need.detail
                 textSize = 12f
                 setTextColor(0xFF9DCAAD.toInt())
             })
+            permRows += need to tv
         }
-        AlertDialog.Builder(this)
+        val d = AlertDialog.Builder(this)
             .setTitle("PERMISSIONS NEEDED")
             .setView(box)
             .setPositiveButton("DONE", null)
             .show()
+        permDialog = d
+        refreshPermissions()
     }
 
     // ------------------------------------------------------------ context editors
@@ -399,6 +439,8 @@ class MainActivity : Activity() {
         var to = existing?.to ?: ""
         val repeatEt = editText("repeat every N minutes (0 = no repeat)")
         if (existing != null && existing.repeatMin > 0) repeatEt.setText(existing.repeatMin.toString())
+        val singleCb = checkBox("single exact time (no From/To range)")
+        singleCb.isChecked = existing != null && existing.from.isNotBlank() && existing.from == existing.to
 
         val fromTv = TextView(this).apply {
             textSize = 16f
@@ -426,8 +468,16 @@ class MainActivity : Activity() {
                 }, h, m, true).show()
             }
         }
+        fun syncViews() {
+            fromTv.alpha = if (singleCb.isChecked) 0.35f else 1f
+            toTv.alpha = if (singleCb.isChecked) 0.35f else 1f
+            toTv.text = if (singleCb.isChecked) "To: (same as From)" else "To: ${TimeCtx.display(to)}"
+        }
+        singleCb.setOnCheckedChangeListener { _, _ -> syncViews() }
+        syncViews()
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(singleCb)
             addView(fromTv)
             addView(toTv)
             addView(repeatEt)
@@ -438,7 +488,8 @@ class MainActivity : Activity() {
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
                 val rep = (repeatEt.text.toString().toIntOrNull() ?: 0).coerceAtLeast(0)
-                onSave(TimeCtx(from, to, rep))
+                val t = if (singleCb.isChecked) TimeCtx(from, from, 0) else TimeCtx(from, to, rep)
+                onSave(t)
             }
             .setNegativeButton("CANCEL", null)
         if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
@@ -549,18 +600,23 @@ class MainActivity : Activity() {
 
     private fun appPick(selected: Set<String>, onDone: (List<String>) -> Unit) {
         val pm = packageManager
-        val infos = try {
-            pm.queryIntentActivities(
-                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0
-            ).sortedBy { it.loadLabel(pm).toString() }
+        val apps = try {
+            pm.getInstalledApplications(0)
+                .filter { it.packageName != packageName }
+                .sortedBy {
+                    (pm.getApplicationLabel(it)?.toString() ?: it.packageName).lowercase()
+                }
         } catch (e: Exception) {
             emptyList()
         }
-        val labels = infos.map { it.loadLabel(pm).toString() }
-        val pkgs = infos.map { it.activityInfo.packageName }
-        val checked = BooleanArray(infos.size) { selected.contains(pkgs[it]) }
+        val labels = apps.map { ai ->
+            val l = pm.getApplicationLabel(ai)?.toString() ?: ai.packageName
+            if (l.equals(ai.packageName, true)) l else "$l  [${ai.packageName}]"
+        }
+        val pkgs = apps.map { it.packageName }
+        val checked = BooleanArray(apps.size) { selected.contains(pkgs[it]) }
         AlertDialog.Builder(this)
-            .setTitle("SELECT APPS")
+            .setTitle("SELECT APPS (${apps.size})")
             .setMultiChoiceItems(labels.toTypedArray(), checked) { _, i, ch -> checked[i] = ch }
             .setPositiveButton("OK") { _, _ ->
                 onDone(pkgs.filterIndexed { i, _ -> checked[i] })

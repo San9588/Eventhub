@@ -1,5 +1,8 @@
 package com.eventsh.app.engine
 
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 
 object EventLog {
@@ -8,7 +11,8 @@ object EventLog {
     var listener: (() -> Unit)? = null
 
     fun push(line: String) {
-        entries.add(0, line)
+        val ts = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+        entries.add(0, "$ts $line")
         while (entries.size > MAX) entries.removeAt(entries.size - 1)
         listener?.invoke()
     }

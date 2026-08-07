@@ -46,25 +46,10 @@ object Dispatcher {
         val sendPackage = Vars.resolve(rule.sendPackage, vars)
         val attempts = (rule.retries + 1).coerceAtLeast(1)
 
-        // 1) Termux:Tasker plugin protocol -> ~/.termux/tasker/<task>.sh
+        // 1) Termux script -> plugin protocol OR RUN_COMMAND (no plugin needed)
         if (taskName.isNotBlank()) {
             retry(attempts, "tasker", rule) { attempt ->
-                try {
-                    val b = Bundle().apply {
-                        vars.forEach { (k, v) -> putString(k, v) }
-                    }
-                    val i = Intent(ACTION_TASKER_REQ).apply {
-                        setPackage("com.termux.tasker")
-                        putExtra(EXTRA_TASKER_INTENT, taskName)
-                        putExtra(EXTRA_TASKER_MSG, "$event:$summary")
-                        putExtra(EXTRA_TASKER_BUNDLE, b)
-                    }
-                    ctx.sendBroadcast(i)
-                    true
-                } catch (e: Exception) {
-                    Log.w(TAG, "tasker broadcast failed", e)
-                    false
-                }
+                termuxTask(ctx, taskName, vars, event, summary)
             }
         }
 
@@ -168,6 +153,52 @@ object Dispatcher {
             }
         }
         EventLog.push("[${rule.label}] $channel FAILED after $attempts attempts")
+    }
+
+    /**
+     * Runs a Termux script named [taskName] (i.e. ~/.termux/tasker/<name>.sh).
+     * Prefers the Termux:Tasker plugin broadcast; falls back to the Termux
+     * RUN_COMMAND intent so the plugin is NOT required (just Termux app with
+     * allow-external-apps enabled).
+     */
+    private fun termuxTask(
+        ctx: Context, taskName: String, vars: Map<String, String>, event: String, summary: String
+    ): Boolean {
+        // 1) Termux:Tasker plugin protocol
+        try {
+            ctx.packageManager.getPackageInfo("com.termux.tasker", 0)
+            val b = Bundle().apply { vars.forEach { (k, v) -> putString(k, v) } }
+            val i = Intent(ACTION_TASKER_REQ).apply {
+                setPackage("com.termux.tasker")
+                putExtra(EXTRA_TASKER_INTENT, taskName)
+                putExtra(EXTRA_TASKER_MSG, "$event:$summary")
+                putExtra(EXTRA_TASKER_BUNDLE, b)
+            }
+            ctx.sendBroadcast(i)
+            return true
+        } catch (e: Exception) {
+            Log.w(TAG, "tasker plugin not available, trying RUN_COMMAND", e)
+        }
+        // 2) Termux RUN_COMMAND fallback (no plugin needed)
+        return try {
+            ctx.packageManager.getPackageInfo("com.termux", 0)
+            val home = "/data/data/com.termux/files/home"
+            val i = Intent("com.termux.RUN_COMMAND").apply {
+                setClassName("com.termux", "com.termux.app.RunCommandService")
+                putExtra("com.termux.RUN_COMMAND_PATH", "$home/.termux/tasker/$taskName.sh")
+                putExtra(
+                    "com.termux.RUN_COMMAND_ARGUMENTS",
+                    vars.map { "%${it.key}=${it.value}" }.toTypedArray()
+                )
+                putExtra("com.termux.RUN_COMMAND_WORKDIR", home)
+                putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
+            }
+            ctx.startService(i)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "termux RUN_COMMAND failed", e)
+            false
+        }
     }
 
     /** Parses `key:value` extras. Separators: newline, `|` or `;`. */
