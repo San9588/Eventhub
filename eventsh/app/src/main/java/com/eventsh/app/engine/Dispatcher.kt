@@ -37,6 +37,14 @@ object Dispatcher {
         val vars = Vars.all(ctx, event, data)
         val summary = vars["SUMMARY"] ?: ""
         EventLog.push("[${rule.label}] $summary")
+        val attempts = (rule.retries + 1).coerceAtLeast(1)
+
+        // 0) built-in shell runs FIRST so %STDOUT / %STDERR / %EXIT are
+        //    available to the notify text / send extras / root cmd below.
+        if (rule.shellCmd.isNotBlank()) {
+            val cmd = Vars.resolve(rule.shellCmd, vars)
+            retry(attempts, "shell", rule) { _ -> runShell(ctx, rule, cmd, vars) }
+        }
 
         val taskName = Vars.resolve(rule.taskName, vars)
         val notifyText = Vars.resolve(rule.notifyText, vars)
@@ -44,7 +52,6 @@ object Dispatcher {
         val sendAction = Vars.resolve(rule.sendAction, vars)
         val sendExtras = Vars.resolve(rule.sendExtras, vars)
         val sendPackage = Vars.resolve(rule.sendPackage, vars)
-        val attempts = (rule.retries + 1).coerceAtLeast(1)
 
         // 1) Termux script -> plugin protocol OR RUN_COMMAND (no plugin needed)
         if (taskName.isNotBlank()) {
@@ -123,6 +130,64 @@ object Dispatcher {
                 }
             }.start()
         }
+    }
+
+    /**
+     * Runs a shell command in eventsh's own process (Tasker "Run Shell" style).
+     * Uses the device's /system/bin/sh. stdout / stderr / exit code are stored
+     * in %STDOUT / %STDERR / %EXIT (RAM vars) and added to the current rule's
+     * variable map so later actions in the same rule can reference them.
+     */
+    private fun runShell(
+        ctx: Context, rule: Rule, cmd: String, vars: MutableMap<String, String>
+    ): Boolean {
+        return try {
+            val p = ProcessBuilder("/system/bin/sh", "-c", cmd).start()
+            val out = StringBuilder()
+            val err = StringBuilder()
+            val t1 = Thread { out.append(readLimited(p.inputStream)) }
+            val t2 = Thread { err.append(readLimited(p.errorStream)) }
+            t1.start(); t2.start()
+            val code = p.waitFor()
+            t1.join(); t2.join()
+            val outS = out.toString().trim()
+            val errS = err.toString().trim()
+            UserVars.set(ctx, "stdout", outS)
+            UserVars.set(ctx, "stderr", errS)
+            UserVars.set(ctx, "exit", code.toString())
+            vars["STDOUT"] = outS
+            vars["STDERR"] = errS
+            vars["EXIT"] = code.toString()
+            EventLog.push("[${rule.label}] shell($code) -> ${outS.take(160)}")
+            code == 0
+        } catch (e: Exception) {
+            Log.w(TAG, "shell cmd failed", e)
+            EventLog.push("[${rule.label}] shell FAILED: ${e.message?.take(120) ?: "error"}")
+            false
+        }
+    }
+
+    /** Reads a process stream, capped at 64 KiB to avoid runaway memory. */
+    private fun readLimited(s: java.io.InputStream): String {
+        val sb = StringBuilder()
+        val buf = ByteArray(8192)
+        var total = 0
+        try {
+            while (true) {
+                val n = s.read(buf)
+                if (n < 0) break
+                if (total + n > 64 * 1024) {
+                    sb.append(String(buf, 0, 64 * 1024 - total))
+                    break
+                }
+                sb.append(String(buf, 0, n))
+                total += n
+            }
+        } catch (e: Exception) {
+        } finally {
+            try { s.close() } catch (e: Exception) {}
+        }
+        return sb.toString()
     }
 
     /**

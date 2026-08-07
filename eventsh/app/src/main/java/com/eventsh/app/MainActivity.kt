@@ -164,6 +164,7 @@ class MainActivity : Activity() {
 
         val labelEt = editText("label")
         val taskEt = editText("termux task name")
+        val shellEt = editText("built-in shell command (sh -c ...)")
         val sendEt = editText("send broadcast action (com.pkg.ACTION)")
         val sendXEt = editText("extras  key:value (per line | or ;)")
         val sendPEt = editText("package target (optional)")
@@ -175,6 +176,7 @@ class MainActivity : Activity() {
         if (existing != null) {
             labelEt.setText(existing.label)
             taskEt.setText(existing.taskName)
+            shellEt.setText(existing.shellCmd)
             sendEt.setText(existing.sendAction)
             sendXEt.setText(existing.sendExtras)
             sendPEt.setText(existing.sendPackage)
@@ -228,6 +230,8 @@ class MainActivity : Activity() {
             addView(ctxBox)
             addView(sectionLabel("RUN SCRIPT (TERMUX)"))
             addView(taskEt)
+            addView(sectionLabel("SHELL (BUILT-IN)"))
+            addView(shellEt)
             addView(sectionLabel("SEND BROADCAST"))
             addView(sendEt)
             addView(sendXEt)
@@ -271,6 +275,7 @@ class MainActivity : Activity() {
                     cooldownSec = cdEt.text.toString().toLongOrNull() ?: 0L,
                     retries = (rtEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 10),
                     taskName = taskEt.text.toString().trim(),
+                    shellCmd = shellEt.text.toString().trim(),
                     sendAction = sendEt.text.toString().trim(),
                     sendExtras = sendXEt.text.toString(),
                     sendPackage = sendPEt.text.toString().trim(),
@@ -753,6 +758,7 @@ class MainActivity : Activity() {
         val whenEt = editText("07:30 | +600 | epoch-ms")
         val labelEt = editText("label")
         val taskEt = editText("termux task name")
+        val shellEt = editText("built-in shell command (sh -c ...)")
         val rootEt = editText("root command")
         val notifyCb = checkBox("show notification")
         val ll = LinearLayout(this).apply {
@@ -760,6 +766,7 @@ class MainActivity : Activity() {
             addView(whenEt)
             addView(labelEt)
             addView(taskEt)
+            addView(shellEt)
             addView(rootEt)
             addView(notifyCb)
         }
@@ -785,6 +792,7 @@ class MainActivity : Activity() {
                     label = labelEt.text.toString().trim().ifBlank { "TIMER" },
                     enabled = true,
                     taskName = taskEt.text.toString().trim(),
+                    shellCmd = shellEt.text.toString().trim(),
                     notify = notifyCb.isChecked,
                     rootCmd = rootEt.text.toString().trim(),
                     atEpoch = atEpoch,

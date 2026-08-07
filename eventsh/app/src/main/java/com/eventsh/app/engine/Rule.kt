@@ -11,6 +11,7 @@ data class Rule(
     val cooldownSec: Long = 0L,
     val debounceMs: Long = 0L,
     val taskName: String = "",
+    val shellCmd: String = "",
     val sendAction: String = "",
     val sendExtras: String = "",
     val sendPackage: String = "",
@@ -51,6 +52,7 @@ data class Rule(
         put("cooldown", cooldownSec)
         put("debounce", debounceMs)
         put("task", taskName)
+        put("shell", shellCmd)
         put("send", sendAction)
         put("sendExtras", sendExtras)
         put("sendPkg", sendPackage)
@@ -88,6 +90,7 @@ data class Rule(
                 cooldownSec = o.optLong("cooldown", 0L),
                 debounceMs = o.optLong("debounce", 0L),
                 taskName = o.optString("task", ""),
+                shellCmd = o.optString("shell", ""),
                 sendAction = o.optString("send", ""),
                 sendExtras = o.optString("sendExtras", ""),
                 sendPackage = o.optString("sendPkg", ""),
