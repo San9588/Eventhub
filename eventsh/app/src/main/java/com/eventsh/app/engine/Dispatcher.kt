@@ -41,6 +41,9 @@ object Dispatcher {
         val taskName = Vars.resolve(rule.taskName, vars)
         val notifyText = Vars.resolve(rule.notifyText, vars)
         val rootCmd = Vars.resolve(rule.rootCmd, vars)
+        val sendAction = Vars.resolve(rule.sendAction, vars)
+        val sendExtras = Vars.resolve(rule.sendExtras, vars)
+        val sendPackage = Vars.resolve(rule.sendPackage, vars)
         val attempts = (rule.retries + 1).coerceAtLeast(1)
 
         // 1) Termux:Tasker plugin protocol -> ~/.termux/tasker/<task>.sh
@@ -65,7 +68,23 @@ object Dispatcher {
             }
         }
 
-        // 2) own generic broadcast (root scripts / custom receivers)
+        // 2) send custom broadcast to other apps (Tasker-style Send Intent)
+        if (sendAction.isNotBlank()) {
+            retry(attempts, "send", rule) { attempt ->
+                try {
+                    val i = Intent(sendAction)
+                    if (sendPackage.isNotBlank()) i.setPackage(sendPackage)
+                    parseExtras(sendExtras).forEach { (k, v) -> putExtraTyped(i, k, v) }
+                    ctx.sendBroadcast(i)
+                    true
+                } catch (e: Exception) {
+                    Log.w(TAG, "send broadcast failed", e)
+                    false
+                }
+            }
+        }
+
+        // 3) own generic broadcast (root scripts / custom receivers)
         retry(attempts, "broadcast", rule) { attempt ->
             try {
                 val i = Intent(ACTION_OWN).apply {
@@ -81,7 +100,7 @@ object Dispatcher {
             }
         }
 
-        // 3) notification
+        // 4) notification
         if (rule.notify) {
             retry(attempts, "notify", rule) { attempt ->
                 try {
@@ -104,7 +123,7 @@ object Dispatcher {
             }
         }
 
-        // 4) root command
+        // 5) root command
         if (rootCmd.isNotBlank()) {
             Thread {
                 retry(attempts, "root", rule) { attempt ->
@@ -149,5 +168,33 @@ object Dispatcher {
             }
         }
         EventLog.push("[${rule.label}] $channel FAILED after $attempts attempts")
+    }
+
+    /** Parses `key:value` extras. Separators: newline, `|` or `;`. */
+    private fun parseExtras(spec: String): List<Pair<String, String>> {
+        val out = mutableListOf<Pair<String, String>>()
+        for (raw in spec.split('\n', '|', ';')) {
+            val line = raw.trim()
+            if (line.isBlank()) continue
+            val idx = line.indexOf(':')
+            if (idx <= 0) continue
+            out += line.substring(0, idx).trim() to line.substring(idx + 1).trim()
+        }
+        return out
+    }
+
+    /** Tasker-style typed extras: true/false -> boolean, L -> long, D -> double, else int/double/string. */
+    private fun putExtraTyped(i: Intent, key: String, value: String) {
+        val v = value.trim()
+        when {
+            v.equals("true", true) -> i.putExtra(key, true)
+            v.equals("false", true) -> i.putExtra(key, false)
+            v.endsWith("L") && v.dropLast(1).toLongOrNull() != null -> i.putExtra(key, v.dropLast(1).toLong())
+            v.endsWith("D") && v.dropLast(1).toDoubleOrNull() != null -> i.putExtra(key, v.dropLast(1).toDouble())
+            v.toIntOrNull() != null -> i.putExtra(key, v.toInt())
+            v.toLongOrNull() != null -> i.putExtra(key, v.toLong())
+            v.toDoubleOrNull() != null -> i.putExtra(key, v.toDouble())
+            else -> i.putExtra(key, v)
+        }
     }
 }

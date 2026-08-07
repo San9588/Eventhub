@@ -132,6 +132,16 @@ object EventHub {
         return level * 100 / scale
     }
 
+    /** Sanitizes an intent extra key into a usable variable name. */
+    private fun varName(k: String): String {
+        val sb = StringBuilder()
+        for (c in k) sb.append(if (c.isLetterOrDigit()) c else '_')
+        var s = sb.toString()
+        if (s.isEmpty()) s = "extra"
+        if (!s.first().isLetter()) s = "a$s"
+        return s
+    }
+
     class Receiver : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             try {
@@ -187,12 +197,17 @@ object EventHub {
                         // fully custom event: rule.event = any broadcast action string
                         val act = intent.action
                         if (act != null) {
-                            val extras = StringBuilder()
+                            val data = HashMap<String, String>()
+                            val sb = StringBuilder()
                             intent.extras?.keySet()?.forEach { k ->
                                 val v = intent.extras?.get(k)
-                                if (v != null) extras.append(" $k=$v")
+                                if (v != null) {
+                                    sb.append(" $k=$v")
+                                    data[varName(k)] = v.toString()
+                                }
                             }
-                            dispatch(act, mapOf("summary" to (extras.toString().trim())))
+                            data["summary"] = sb.toString().trim()
+                            dispatch(act, data)
                         }
                     }
                 }

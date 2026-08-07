@@ -11,6 +11,9 @@ data class Rule(
     val cooldownSec: Long = 0L,
     val debounceMs: Long = 0L,
     val taskName: String = "",
+    val sendAction: String = "",
+    val sendExtras: String = "",
+    val sendPackage: String = "",
     val notify: Boolean = true,
     val notifyText: String = "",
     val rootCmd: String = "",
@@ -48,6 +51,9 @@ data class Rule(
         put("cooldown", cooldownSec)
         put("debounce", debounceMs)
         put("task", taskName)
+        put("send", sendAction)
+        put("sendExtras", sendExtras)
+        put("sendPkg", sendPackage)
         put("notify", notify)
         put("notext", notifyText)
         put("root", rootCmd)
@@ -82,6 +88,9 @@ data class Rule(
                 cooldownSec = o.optLong("cooldown", 0L),
                 debounceMs = o.optLong("debounce", 0L),
                 taskName = o.optString("task", ""),
+                sendAction = o.optString("send", ""),
+                sendExtras = o.optString("sendExtras", ""),
+                sendPackage = o.optString("sendPkg", ""),
                 notify = o.optBoolean("notify", true),
                 notifyText = o.optString("notext", ""),
                 rootCmd = o.optString("root", ""),

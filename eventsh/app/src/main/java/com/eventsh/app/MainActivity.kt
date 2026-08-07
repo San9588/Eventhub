@@ -124,6 +124,9 @@ class MainActivity : Activity() {
 
         val labelEt = editText("label")
         val taskEt = editText("termux task name")
+        val sendEt = editText("send broadcast action (com.pkg.ACTION)")
+        val sendXEt = editText("extras  key:value (per line | or ;)")
+        val sendPEt = editText("package target (optional)")
         val textEt = editText("notify text (%VAR% ok)")
         val rootEt = editText("root command")
         val cdEt = editText("cooldown seconds (0)")
@@ -132,6 +135,9 @@ class MainActivity : Activity() {
         if (existing != null) {
             labelEt.setText(existing.label)
             taskEt.setText(existing.taskName)
+            sendEt.setText(existing.sendAction)
+            sendXEt.setText(existing.sendExtras)
+            sendPEt.setText(existing.sendPackage)
             textEt.setText(existing.notifyText)
             rootEt.setText(existing.rootCmd)
             cdEt.setText(existing.cooldownSec.toString())
@@ -182,6 +188,10 @@ class MainActivity : Activity() {
             addView(ctxBox)
             addView(sectionLabel("TASK"))
             addView(taskEt)
+            addView(sectionLabel("SEND BROADCAST"))
+            addView(sendEt)
+            addView(sendXEt)
+            addView(sendPEt)
             addView(textEt)
             addView(rootEt)
             addView(sectionLabel("TIMING"))
@@ -219,6 +229,9 @@ class MainActivity : Activity() {
                     cooldownSec = cdEt.text.toString().toLongOrNull() ?: 0L,
                     retries = (rtEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 10),
                     taskName = taskEt.text.toString().trim(),
+                    sendAction = sendEt.text.toString().trim(),
+                    sendExtras = sendXEt.text.toString(),
+                    sendPackage = sendPEt.text.toString().trim(),
                     notifyText = textEt.text.toString(),
                     rootCmd = rootEt.text.toString().trim(),
                     notify = notifyCb.isChecked
