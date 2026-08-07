@@ -246,8 +246,14 @@ object Dispatcher {
             }
             ctx.startService(i)
             return true
+        } catch (e: SecurityException) {
+            EventLog.push("[$taskName] RUN_COMMAND denied: Termux 'Allow external apps' OFF or not confirmed")
+            Log.w(TAG, "termux RUN_COMMAND permission denied", e)
+        } catch (e: ClassNotFoundException) {
+            EventLog.push("[$taskName] RUN_COMMAND service missing: update Termux (0.117+)")
+            Log.w(TAG, "termux RUN_COMMAND service not found", e)
         } catch (e: Exception) {
-            EventLog.push("[$taskName] termux RUN_COMMAND failed: enable 'Allow external apps' in Termux")
+            EventLog.push("[$taskName] RUN_COMMAND failed: ${e.message?.take(100) ?: "unknown"}")
             Log.w(TAG, "termux RUN_COMMAND failed", e)
         }
         // 2) Termux:Tasker plugin fallback
