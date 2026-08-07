@@ -10,9 +10,12 @@ import android.os.Bundle
 import android.os.Debug
 import android.os.Handler
 import android.os.Looper
+import android.view.WindowInsets
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.TextView
+import com.eventsh.app.engine.EventCatalog
 import com.eventsh.app.engine.EventHub
 import com.eventsh.app.engine.EventLog
 import com.eventsh.app.engine.RootBridge
@@ -39,6 +42,15 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         view = TerminalView(this)
         setContentView(view)
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            view.setOnApplyWindowInsetsListener { v, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                insets
+            }
+            view.requestApplyInsets()
+        }
 
         if (Build.VERSION.SDK_INT >= 33) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 10)
@@ -96,18 +108,28 @@ class MainActivity : Activity() {
 
     private fun ruleDialog(existing: Rule?) {
         val isTimer = existing?.isOneShotTimer == true || existing?.isDailyTimer == true
-        val labelEt = EditText(this).apply { hint = "label" }
-        val eventEt = EditText(this).apply { hint = "event  (or broadcast action)" }
-        val cdEt = EditText(this).apply { hint = "cooldown seconds (0)" }
-        val rtEt = EditText(this).apply { hint = "retries on failure (0)" }
-        val taskEt = EditText(this).apply { hint = "termux task name" }
-        val textEt = EditText(this).apply { hint = "notify text (%VAR% ok)" }
-        val rootEt = EditText(this).apply { hint = "root command" }
-        val filterEt = EditText(this).apply { hint = "filter (substring)" }
-        val notifyCb = CheckBox(this).apply { text = "show notification" }
+        val labelEt = editText("label")
+        val eventTv = TextView(this).apply {
+            textSize = 18f
+            setPadding(8, 14, 8, 14)
+            if (isTimer) {
+                text = existing?.event ?: "timer"
+                setTextColor(0xFF3C7852.toInt())
+            } else {
+                text = existing?.event ?: "(choose event)"
+                setTextColor(0xFF00FF6E.toInt())
+                setOnClickListener { pickEvent { ev -> text = ev } }
+            }
+        }
+        val cdEt = editText("cooldown seconds (0)")
+        val rtEt = editText("retries on failure (0)")
+        val taskEt = editText("termux task name")
+        val textEt = editText("notify text (%VAR% ok)")
+        val rootEt = editText("root command")
+        val filterEt = editText("filter (substring)")
+        val notifyCb = checkBox("show notification")
         if (existing != null) {
             labelEt.setText(existing.label)
-            eventEt.setText(existing.event)
             cdEt.setText(existing.cooldownSec.toString())
             rtEt.setText(existing.retries.toString())
             taskEt.setText(existing.taskName)
@@ -118,14 +140,10 @@ class MainActivity : Activity() {
         } else {
             notifyCb.isChecked = true
         }
-        if (isTimer) {
-            eventEt.hint = "timer (fixed)"
-            eventEt.isEnabled = false
-        }
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(eventTv)
             addView(labelEt)
-            addView(eventEt)
             addView(cdEt)
             addView(rtEt)
             addView(taskEt)
@@ -136,16 +154,22 @@ class MainActivity : Activity() {
         }
         val d = AlertDialog.Builder(this)
             .setTitle(if (existing == null) "ADD RULE" else "EDIT RULE")
-            .setMessage("custom event = any broadcast action string")
+            .setMessage("tap event to choose (custom = any broadcast action)")
             .setView(ll)
             .setPositiveButton("SAVE") { _, _ ->
+                val event = if (isTimer) (existing?.event ?: "timer")
+                else eventTv.text.toString().trim()
+                if (event.isEmpty() || event == "(choose event)") {
+                    EventLog.push("[ui] choose an event first")
+                    return@setPositiveButton
+                }
                 val base = existing ?: Rule(
                     id = "r_" + UUID.randomUUID().toString().take(8),
-                    event = "custom", label = "NEW.RULE"
+                    event = event, label = "NEW.RULE"
                 )
                 val newRule = base.copy(
                     label = labelEt.text.toString().trim().ifBlank { "RULE" },
-                    event = if (isTimer) base.event else eventEt.text.toString().trim().ifBlank { "custom" },
+                    event = event,
                     enabled = true,
                     cooldownSec = cdEt.text.toString().toLongOrNull() ?: 0L,
                     retries = (rtEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 10),
@@ -177,12 +201,55 @@ class MainActivity : Activity() {
         d.show()
     }
 
+    private fun pickEvent(onPick: (String) -> Unit) {
+        val used = RuleStore.load(this).map { it.event }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .filter { it !in EventCatalog.STANDARD }
+        val items = EventCatalog.STANDARD + used + "custom..."
+        AlertDialog.Builder(this)
+            .setTitle("CHOOSE EVENT")
+            .setItems(items.toTypedArray()) { _, which ->
+                val sel = items[which]
+                if (sel == "custom...") {
+                    val input = EditText(this).apply {
+                        hint = "broadcast action string"
+                        textSize = 18f
+                    }
+                    AlertDialog.Builder(this)
+                        .setTitle("CUSTOM EVENT")
+                        .setMessage("your event name or any broadcast action")
+                        .setView(input)
+                        .setPositiveButton("OK") { _, _ ->
+                            val v = input.text.toString().trim()
+                            if (v.isNotEmpty()) onPick(v)
+                        }
+                        .setNegativeButton("CANCEL", null)
+                        .show()
+                } else {
+                    onPick(sel)
+                }
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    private fun editText(hint: String): EditText = EditText(this).apply {
+        this.hint = hint
+        textSize = 18f
+    }
+
+    private fun checkBox(text: String): CheckBox = CheckBox(this).apply {
+        this.text = text
+        textSize = 18f
+    }
+
     private fun timerDialog() {
-        val whenEt = EditText(this).apply { hint = "07:30 | +600 | epoch-ms" }
-        val labelEt = EditText(this).apply { hint = "label" }
-        val taskEt = EditText(this).apply { hint = "termux task name" }
-        val rootEt = EditText(this).apply { hint = "root command" }
-        val notifyCb = CheckBox(this).apply { text = "show notification" }
+        val whenEt = editText("07:30 | +600 | epoch-ms")
+        val labelEt = editText("label")
+        val taskEt = editText("termux task name")
+        val rootEt = editText("root command")
+        val notifyCb = checkBox("show notification")
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(whenEt)
@@ -229,8 +296,8 @@ class MainActivity : Activity() {
     }
 
     private fun varDialog(existing: TerminalView.VarRow?) {
-        val nameEt = EditText(this).apply { hint = "name  (UPPER=disk)" }
-        val valEt = EditText(this).apply { hint = "value" }
+        val nameEt = editText("name  (UPPER=disk)")
+        val valEt = editText("value")
         if (existing != null) {
             nameEt.setText(existing.name)
             valEt.setText(existing.value)

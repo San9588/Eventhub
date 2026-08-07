@@ -1,0 +1,41 @@
+package com.eventsh.app.engine
+
+object EventCatalog {
+    val STANDARD: List<String> = listOf(
+        "screen_on",
+        "screen_off",
+        "user_present",
+        "charger_plug",
+        "charger_unplug",
+        "battery_low",
+        "battery_full",
+        "wifi_conn",
+        "wifi_disconn",
+        "wifi_on",
+        "airplane_on",
+        "airplane_off",
+        "headset_plug",
+        "headset_unplug",
+        "call_in",
+        "call_end",
+        "sms",
+        "bt_conn",
+        "bt_disconn",
+        "boot",
+        "time_tick",
+        "time_set",
+        "tz_change",
+        "app_install",
+        "app_remove",
+        "app_update",
+        "fg_app",
+        "app_open",
+        "app_close",
+        "notify_post",
+        "ram_pct",
+        "disk_free",
+        "timer.one",
+        "timer.daily",
+        "shell_event"
+    )
+}

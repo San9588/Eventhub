@@ -56,9 +56,11 @@ class TerminalView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         val u = pp.toFloat()
-        val W = width / u
-        val H = height / u
+        val W = (width - paddingLeft - paddingRight) / u
+        val H = (height - paddingTop - paddingBottom) / u
         canvas.drawColor(P.BG)
+        val save = canvas.save()
+        canvas.translate(paddingLeft.toFloat(), paddingTop.toFloat())
         when (screen) {
             0 -> drawRules(canvas, u, W, H)
             1 -> drawLog(canvas, u, W, H)
@@ -66,23 +68,24 @@ class TerminalView(context: Context) : View(context) {
             3 -> drawCfg(canvas, u, W, H)
         }
         drawNav(canvas, u, W, H)
+        canvas.restoreToCount(save)
     }
 
     // ------------------------------------------------------------- helpers
     private fun drawText(c: Canvas, text: String, x: Float, y: Float, scale: Int, color: Int, bg: Int? = null) {
         val u = pp.toFloat()
-        textPaint.textSize = 7f * scale * u
+        textPaint.textSize = 8.5f * scale * u
         textPaint.color = color
         if (bg != null) {
             paint.color = bg
-            c.drawRect(x * u, y * u, (x + textWidth(text, scale)) * u, (y + 9f * scale) * u, paint)
+            c.drawRect(x * u, y * u, (x + textWidth(text, scale)) * u, (y + 10f * scale) * u, paint)
         }
-        c.drawText(text, x * u, (y + 7.5f * scale) * u, textPaint)
+        c.drawText(text, x * u, (y + 8f * scale) * u, textPaint)
     }
 
     private fun textWidth(text: String, scale: Int): Float {
         val u = pp.toFloat()
-        textPaint.textSize = 7f * scale * u
+        textPaint.textSize = 8.5f * scale * u
         return textPaint.measureText(text) / u
     }
 
@@ -363,10 +366,10 @@ class TerminalView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked != MotionEvent.ACTION_DOWN) return true
         val u = pp.toFloat()
-        val W = width / u
-        val H = height / u
-        val x = event.x / u
-        val y = event.y / u
+        val W = (width - paddingLeft - paddingRight) / u
+        val H = (height - paddingTop - paddingBottom) / u
+        val x = (event.x - paddingLeft) / u
+        val y = (event.y - paddingTop) / u
 
         val navTop = H - 16f
         if (y > navTop) {
