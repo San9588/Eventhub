@@ -228,7 +228,7 @@ object ContextGate {
 
     private fun varMatch(ctx: Context, vc: VarCtx): Boolean {
         val v = UserVars.get(ctx, vc.name)
-        val ok = if (vc.value.isBlank()) v != null else simpleMatch(vc.value, v ?: "")
+        val ok = if (vc.value.isBlank()) v != null else matchPattern(vc.value, v ?: "")
         return if (vc.invert) !ok else ok
     }
 
@@ -242,7 +242,7 @@ object ContextGate {
     }
 
     /** Tasker-style simple matching: `*` any, `+` at least one, `/` OR, `!` NOT. */
-    private fun simpleMatch(pattern: String, target: String): Boolean {
+    fun matchPattern(pattern: String, target: String): Boolean {
         if (pattern.isBlank()) return true
         val negate = pattern.startsWith("!")
         val pat = if (negate) pattern.drop(1) else pattern

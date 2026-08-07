@@ -34,10 +34,18 @@ data class Rule(
     val varCtx: VarCtx? get() = contexts.filterIsInstance<VarCtx>().firstOrNull()
     val appCtx: AppCtx? get() = contexts.filterIsInstance<AppCtx>().firstOrNull()
 
-    val hasTrigger: Boolean get() = event.isNotBlank() || timeCtx != null || appCtx != null || varCtx != null
+    val hasTrigger: Boolean get() = eventActions.isNotEmpty() || timeCtx != null || appCtx != null || varCtx != null
+
+    /** All broadcast event names this rule listens for (from every EventCtx). */
+    val eventActions: List<String> get() = contexts.filterIsInstance<EventCtx>().map { it.action }
+
+    /** True if any EventCtx (or the legacy [event] field) listens for [name]. */
+    fun hasEvent(name: String): Boolean = eventActions.contains(name) || event == name
 
     /** Human-readable single line describing the trigger context. */
     fun contextLine(): String {
+        val events = contexts.filterIsInstance<EventCtx>()
+        if (events.size > 1) return "${events.size} events"
         eventContext?.let { return it.summary() }
         timeCtx?.let { return it.summary() }
         contexts.firstOrNull()?.let { return it.summary() }
@@ -79,13 +87,13 @@ data class Rule(
             }
             // migrate legacy rules: event/filter became the primary EventCtx
             if (contexts.none { it is EventCtx }) {
-                val legacy = o.getString("event")
+                val legacy = o.optString("event", "")
                 if (legacy.isNotBlank()) contexts.add(0, EventCtx(legacy, o.optString("filter", "")))
             }
             return Rule(
-                id = o.getString("id"),
-                event = o.getString("event"),
-                label = o.optString("label", o.getString("event")),
+                id = o.optString("id", "r_" + Math.random().toString().take(8)),
+                event = o.optString("event", ""),
+                label = o.optString("label", o.optString("event", "")),
                 enabled = o.optBoolean("enabled", true),
                 cooldownSec = o.optLong("cooldown", 0L),
                 debounceMs = o.optLong("debounce", 0L),

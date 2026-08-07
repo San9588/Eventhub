@@ -28,11 +28,14 @@ class TerminalView(context: Context) : View(context) {
     var onToggleRule: ((Rule) -> Unit)? = null
     var onEditRule: ((Rule) -> Unit)? = null
     var onDeleteRule: ((Rule) -> Unit)? = null
+    var onTestRule: ((Rule) -> Unit)? = null
     var onAddRule: (() -> Unit)? = null
     var onAddTimer: (() -> Unit)? = null
     var onNav: ((Int) -> Unit)? = null
     var onServiceToggle: (() -> Unit)? = null
     var onRootCheck: (() -> Unit)? = null
+    var onExport: (() -> Unit)? = null
+    var onImport: (() -> Unit)? = null
     var onAddVar: (() -> Unit)? = null
     var onEditVar: ((VarRow) -> Unit)? = null
 
@@ -167,31 +170,35 @@ class TerminalView(context: Context) : View(context) {
         c.clipRect(0f, listTop * pp, width.toFloat(), listBottom * pp)
         rowEditRects.clear()
         rowDelRects.clear()
+        rowTestRects.clear()
         var i = 0
         for (r in rules) {
             val y = listTop + i * rowH - scrollY
             if (y > listBottom) break
             if (y + rowH < listTop) { i++; continue }
             // selected (first) highlight
-            if (i == 0) drawBox(c, 2f, y, W - 4, rowH, P.BG2, P.BORDER)
+            if (i == 0 && scrollY <= 0f) drawBox(c, 2f, y, W - 4, rowH, P.BG2, P.BORDER)
             drawDot(c, 5f, y + 3, if (r.enabled) P.GREEN else P.OFF)
             drawText(c, r.label, 10f, y + 2, 1, if (r.enabled) P.GREEN else P.OFF)
             drawToggle(c, W - 16, y + 1, r.enabled)
             // line 2: context summary (truncated)
             val cl = r.contextLine()
-            val maxW = (W - 38).coerceAtLeast(4f)
+            val maxW = (W - 54).coerceAtLeast(4f)
             var shown = cl
             if (shown.isNotEmpty()) {
                 while (shown.isNotEmpty() && textWidth(shown, 1) > maxW) shown = shown.dropLast(1)
                 drawText(c, shown, 10f, y + 15, 1, P.TXT)
             }
-            // edit (E) and delete (X) buttons, spaced apart
-            drawBox(c, W - 32, y + 13, 12f, 9f, P.BG2, P.BORDER)
-            drawText(c, "E", W - 31, y + 14, 1, P.GREEN)
-            rowEditRects.add(Box(W - 32, y + 13, 12f, 9f))
-            drawBox(c, W - 17, y + 13, 12f, 9f, P.BG2, P.BORDER)
-            drawText(c, "X", W - 16, y + 14, 1, P.RED)
-            rowDelRects.add(Box(W - 17, y + 13, 12f, 9f))
+            // test (T), edit (E) and delete (X) buttons, spaced apart
+            drawBox(c, W - 47, y + 13, 10f, 9f, P.BG2, P.BORDER)
+            drawText(c, "T", W - 46, y + 14, 1, P.AMBER)
+            rowTestRects[i] = Box(W - 47, y + 13, 10f, 9f)
+            drawBox(c, W - 34, y + 13, 10f, 9f, P.BG2, P.BORDER)
+            drawText(c, "E", W - 33, y + 14, 1, P.GREEN)
+            rowEditRects[i] = Box(W - 34, y + 13, 10f, 9f)
+            drawBox(c, W - 21, y + 13, 10f, 9f, P.BG2, P.BORDER)
+            drawText(c, "X", W - 20, y + 14, 1, P.RED)
+            rowDelRects[i] = Box(W - 21, y + 13, 10f, 9f)
             i++
         }
         c.restoreToCount(save)
@@ -219,8 +226,9 @@ class TerminalView(context: Context) : View(context) {
         }
     }
 
-    private val rowEditRects = ArrayList<Box>()
-    private val rowDelRects = ArrayList<Box>()
+    private val rowEditRects = HashMap<Int, Box>()
+    private val rowDelRects = HashMap<Int, Box>()
+    private val rowTestRects = HashMap<Int, Box>()
     private var lastAddRuleRect: Box? = null
     private var lastAddTimerRect: Box? = null
 
@@ -279,6 +287,17 @@ class TerminalView(context: Context) : View(context) {
         lastServiceRect = Box(svx, y - 1, textWidth(svcLabel, 1) + 2, 8f)
         y += 14
 
+        val expLabel = "[ EXPORT ]"
+        drawBox(c, 8f, y - 1, textWidth(expLabel, 1) + 2, 8f, P.BG2, P.BORDER)
+        drawText(c, expLabel, 9f, y, 1, P.GREEN)
+        lastExportRect = Box(8f, y - 1, textWidth(expLabel, 1) + 2, 8f)
+        val impLabel = "[ IMPORT ]"
+        val imx = W - 8 - textWidth(impLabel, 1)
+        drawBox(c, imx, y - 1, textWidth(impLabel, 1) + 2, 8f, P.BG2, P.BORDER)
+        drawText(c, impLabel, imx + 1, y, 1, P.GREEN)
+        lastImportRect = Box(imx, y - 1, textWidth(impLabel, 1) + 2, 8f)
+        y += 14
+
         drawText(c, "USAGE", 8f, y, 1, P.DIM); y += 9
         drawText(c, "termux scripts", 8f, y, 1, P.TXT); y += 9
         drawText(c, "> ln -s script", 8f, y, 1, P.OFF); y += 9
@@ -299,6 +318,8 @@ class TerminalView(context: Context) : View(context) {
 
     private var lastServiceRect: Box? = null
     private var lastRootRect: Box? = null
+    private var lastExportRect: Box? = null
+    private var lastImportRect: Box? = null
     private data class Box(val x: Float, val y: Float, val w: Float, val h: Float)
 
     // ------------------------------------------------------------- VAR
@@ -374,78 +395,104 @@ class TerminalView(context: Context) : View(context) {
         }
     }
 
+    private var downY = 0f
+    private var downScrollY = 0f
+    private var downVarScroll = 0f
+    private var dragging = false
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked != MotionEvent.ACTION_DOWN) return true
         val u = pp.toFloat()
         val W = (width - paddingLeft - paddingRight) / u
         val H = (height - paddingTop - paddingBottom) / u
         val x = (event.x - paddingLeft) / u
         val y = (event.y - paddingTop) / u
 
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downY = y
+                downScrollY = scrollY
+                downVarScroll = varScroll
+                dragging = false
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dy = y - downY
+                if (kotlin.math.abs(dy) > 2f) dragging = true
+                if (dragging) {
+                    when (screen) {
+                        0 -> {
+                            val navTop = H - 26f
+                            val listH = (navTop - 12f) - 63f
+                            val maxScroll = (rules.size * rowH - listH).coerceAtLeast(0f)
+                            scrollY = (downScrollY - dy).coerceIn(0f, maxScroll)
+                        }
+                        2 -> {
+                            val navTop = H - 26f
+                            val listH = navTop - 44f
+                            val maxScroll = (userVars.size * 12f - listH).coerceAtLeast(0f)
+                            varScroll = (downVarScroll - dy).coerceIn(0f, maxScroll)
+                        }
+                    }
+                    invalidate()
+                }
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (dragging) { dragging = false; return true }
+                handleTap(x, y, W, H)
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                dragging = false
+                return true
+            }
+        }
+        return true
+    }
+
+    private fun hit(b: Box?, x: Float, y: Float): Boolean =
+        b != null && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h
+
+    private fun handleTap(x: Float, y: Float, W: Float, H: Float) {
         val navTop = H - 16f
         if (y > navTop) {
             for (i in navZones.indices) {
                 val (label, zx) = navZones[i]
                 if (x >= zx && x <= zx + textWidth(label, 1)) {
                     onNav?.invoke(i)
-                    return true
+                    return
                 }
             }
-            return true
+            return
         }
 
         when (screen) {
             0 -> {
-                if (y < 63f) return true
-                val ar = lastAddRuleRect
-                if (ar != null && x >= ar.x && x <= ar.x + ar.w && y >= ar.y && y <= ar.y + ar.h) {
-                    onAddRule?.invoke()
-                    return true
-                }
-                val at = lastAddTimerRect
-                if (at != null && x >= at.x && x <= at.x + at.w && y >= at.y && y <= at.y + at.h) {
-                    onAddTimer?.invoke()
-                    return true
-                }
-                if (y > navTop - 10f) return true
+                if (y < 63f) return
+                if (hit(lastAddRuleRect, x, y)) { onAddRule?.invoke(); return }
+                if (hit(lastAddTimerRect, x, y)) { onAddTimer?.invoke(); return }
+                if (y > navTop - 10f) return
                 val idx = ((y - 63f + scrollY) / rowH).toInt()
                 if (idx in rules.indices) {
-                    val db = rowDelRects.getOrNull(idx)
-                    if (db != null && x >= db.x && x <= db.x + db.w && y >= db.y && y <= db.y + db.h) {
-                        onDeleteRule?.invoke(rules[idx])
-                        return true
-                    }
-                    val eb = rowEditRects.getOrNull(idx)
-                    if (eb != null && x >= eb.x && x <= eb.x + eb.w && y >= eb.y && y <= eb.y + eb.h) {
-                        onEditRule?.invoke(rules[idx])
-                    } else {
-                        onToggleRule?.invoke(rules[idx])
-                    }
+                    if (hit(rowTestRects[idx], x, y)) { onTestRule?.invoke(rules[idx]); return }
+                    if (hit(rowDelRects[idx], x, y)) { onDeleteRule?.invoke(rules[idx]); return }
+                    if (hit(rowEditRects[idx], x, y)) onEditRule?.invoke(rules[idx])
+                    else onToggleRule?.invoke(rules[idx])
                 }
             }
             2 -> {
-                val ar = lastAddRect
-                if (ar != null && x >= ar.x && x <= ar.x + ar.w && y >= ar.y && y <= ar.y + ar.h) {
-                    onAddVar?.invoke()
-                    return true
-                }
+                if (hit(lastAddRect, x, y)) { onAddVar?.invoke(); return }
                 if (y > varRowsStart && y < navTop) {
                     val idx = ((y - varRowsStart + varScroll) / 12f).toInt()
                     if (idx in userVars.indices) onEditVar?.invoke(userVars[idx])
                 }
             }
             3 -> {
-                val r = lastServiceRect
-                if (r != null && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
-                    onServiceToggle?.invoke()
-                    return true
-                }
-                val rr = lastRootRect
-                if (rr != null && x >= rr.x && x <= rr.x + rr.w && y >= rr.y && y <= rr.y + rr.h) {
-                    onRootCheck?.invoke()
-                }
+                if (hit(lastServiceRect, x, y)) { onServiceToggle?.invoke(); return }
+                if (hit(lastRootRect, x, y)) { onRootCheck?.invoke(); return }
+                if (hit(lastExportRect, x, y)) { onExport?.invoke(); return }
+                if (hit(lastImportRect, x, y)) onImport?.invoke()
             }
         }
-        return true
     }
 }

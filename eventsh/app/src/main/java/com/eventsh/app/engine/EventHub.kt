@@ -37,7 +37,7 @@ object EventHub {
 
     private fun syncCustomActions(ctx: Context) {
         val custom = RuleStore.load(ctx)
-            .map { it.event }
+            .flatMap { it.eventActions }
             .filter { it.isNotBlank() }
             .filterNot { standard.contains(it) }
             .toSet()
@@ -83,10 +83,10 @@ object EventHub {
     fun fireDirect(ctx: Context, event: String, data: Map<String, String>) {
         val rules = RuleStore.load(ctx).filter { r ->
             r.enabled && (
-                r.event == event ||
+                r.hasEvent(event) ||
                     // app-only / var-only rules: driven by synthetic state events
-                    (event == "app.state" && r.event.isBlank() && r.timeCtx == null && r.appCtx != null) ||
-                    (event == "var.state" && r.event.isBlank() && r.timeCtx == null && r.varCtx != null)
+                    (event == "app.state" && r.eventActions.isEmpty() && r.event.isBlank() && r.timeCtx == null && r.appCtx != null) ||
+                    (event == "var.state" && r.eventActions.isEmpty() && r.event.isBlank() && r.timeCtx == null && r.varCtx != null)
                 )
         }
         if (rules.isEmpty()) return
@@ -104,24 +104,37 @@ object EventHub {
         val last = lastFire[rule.id] ?: 0L
         val waitMs = rule.cooldownSec * 1000L + rule.debounceMs
         if (now - last < waitMs) return
-        if (!passesFilter(rule, data)) return
+        if (!passesFilter(rule, event, data)) return
         if (!ContextGate.check(ctx, rule, data)) return
         lastFire[rule.id] = now
         Dispatcher.fire(ctx, rule, event, data)
     }
 
-    private fun passesFilter(r: Rule, data: Map<String, String>): Boolean {
-        if (r.filter.isBlank()) return true
-        val num = r.filter.toLongOrNull()
+    private fun passesFilter(r: Rule, event: String, data: Map<String, String>): Boolean {
+        // the filter that applies is the one on the EventCtx that matched this event
+        val filter = r.contexts.filterIsInstance<EventCtx>()
+            .firstOrNull { it.action == event }?.filter
+            ?: r.filter
+        if (filter.isBlank()) return true
+        val num = filter.toLongOrNull()
         val value = data["value"]?.toLongOrNull()
         if (num != null && value != null) {
-            return when (r.event) {
+            return when (event) {
                 "ram_pct" -> value >= num
                 "disk_free" -> value <= num
-                else -> data["summary"]?.contains(r.filter, true) == true
+                else -> summaryMatches(filter, data["summary"] ?: "")
             }
         }
-        return data["summary"]?.contains(r.filter, true) == true
+        return summaryMatches(filter, data["summary"] ?: "")
+    }
+
+    /** `*`/`+`/`/`/`!` -> pattern match; otherwise case-insensitive substring (legacy behavior). */
+    private fun summaryMatches(filter: String, summary: String): Boolean {
+        return if (filter.any { it == '*' || it == '+' || it == '/' || it == '!' }) {
+            ContextGate.matchPattern(filter, summary)
+        } else {
+            summary.contains(filter, true)
+        }
     }
 
     fun batteryNow(ctx: Context): Int {

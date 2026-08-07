@@ -27,6 +27,7 @@ import android.widget.TextView
 import com.eventsh.app.engine.AppCtx
 import com.eventsh.app.engine.Ctx
 import com.eventsh.app.engine.DayCtx
+import com.eventsh.app.engine.Dispatcher
 import com.eventsh.app.engine.EventCtx
 import com.eventsh.app.engine.EventCatalog
 import com.eventsh.app.engine.EventHub
@@ -148,10 +149,13 @@ class MainActivity : Activity() {
             RootBridge.checkAsync()
             handler.postDelayed({ refreshScreen() }, 900)
         }
+        view.onExport = { exportRules() }
+        view.onImport = { importRules() }
         view.onAddVar = { varDialog(null) }
         view.onEditVar = { row -> varDialog(row) }
         view.onEditRule = { r -> ruleDialog(r) }
         view.onDeleteRule = { r -> deleteRule(r) }
+        view.onTestRule = { r -> testRule(r) }
         view.onAddRule = { ruleDialog(null) }
         view.onAddTimer = { timerDialog() }
     }
@@ -313,6 +317,53 @@ class MainActivity : Activity() {
         d.show()
     }
 
+    /** Manual test: fire the rule's actions immediately, bypassing cooldown. */
+    private fun testRule(r: Rule) {
+        val ev = r.eventActions.firstOrNull() ?: r.event.ifBlank { "test" }
+        EventLog.push("[test] firing '${r.label}' on $ev")
+        Dispatcher.fire(this, r, ev, mapOf("summary" to "manual test"))
+    }
+
+    /** Writes all rules + user vars as JSON to the external files dir. */
+    private fun exportRules() {
+        try {
+            val outDir = getExternalFilesDir(null) ?: filesDir
+            val f = File(outDir, "eventsh_backup.json")
+            val rules = RuleStore.load(this)
+            val json = org.json.JSONArray()
+            rules.forEach { json.put(it.toJson()) }
+            f.writeText(json.toString())
+            EventLog.push("[bak] exported ${rules.size} rule(s) -> ${f.absolutePath}")
+        } catch (e: Exception) {
+            EventLog.push("[bak] export FAILED: ${e.message?.take(100) ?: "error"}")
+        }
+        refreshScreen()
+    }
+
+    /** Loads rules + user vars from the external files dir backup file. */
+    private fun importRules() {
+        try {
+            val outDir = getExternalFilesDir(null) ?: filesDir
+            val f = File(outDir, "eventsh_backup.json")
+            if (!f.exists()) {
+                EventLog.push("[bak] no backup file at ${f.absolutePath}")
+                refreshScreen()
+                return
+            }
+            val arr = org.json.JSONArray(f.readText())
+            val rules = ArrayList<Rule>(arr.length())
+            for (i in 0 until arr.length()) rules.add(Rule.fromJson(arr.getJSONObject(i)))
+            RuleStore.save(this, rules)
+            Scheduler.rescheduleAll(this)
+            if (isServiceRunning()) EventHub.resync(this)
+            EventLog.push("[bak] imported ${rules.size} rule(s)")
+            refreshScreen()
+        } catch (e: Exception) {
+            EventLog.push("[bak] import FAILED: ${e.message?.take(100) ?: "error"}")
+        }
+        refreshScreen()
+    }
+
     private fun deleteRule(r: Rule) {
         AlertDialog.Builder(this)
             .setTitle("DELETE RULE")
@@ -372,13 +423,7 @@ class MainActivity : Activity() {
             .setTitle("ADD CONTEXT")
             .setItems(arrayOf("EVENT", "TIME", "DAY", "VARIABLE", "APP")) { _, which ->
                 when (which) {
-                    0 -> {
-                        if (list.any { it is EventCtx }) {
-                            EventLog.push("[ui] replacing existing EVENT context")
-                            list.removeAll { it is EventCtx }
-                        }
-                        eventCtxDialog(null, { list.add(it); refresh() }, null)
-                    }
+                    0 -> eventCtxDialog(null, { list.add(it); refresh() }, null)
                     1 -> timeCtxDialog(null, { list.add(it); refresh() }, null)
                     2 -> dayCtxDialog(null, { list.add(it); refresh() }, null)
                     3 -> varCtxDialog(null, { list.add(it); refresh() }, null)
@@ -408,7 +453,7 @@ class MainActivity : Activity() {
             setTextColor(0xFF00FF6E.toInt())
             setOnClickListener { pickEvent { ev -> action = ev; text = ev } }
         }
-        val filterEt = editText("filter (substring or number)")
+        val filterEt = editText("filter (* pattern, / OR, ! NOT, num)")
         val prioEt = editText("priority (5)")
         val stopCb = checkBox("stop event (consume for other profiles)")
         if (existing != null) {
@@ -712,7 +757,7 @@ class MainActivity : Activity() {
     }
 
     private fun pickEvent(onPick: (String) -> Unit) {
-        val used = RuleStore.load(this).map { it.event }
+        val used = RuleStore.load(this).flatMap { it.eventActions }
             .filter { it.isNotBlank() }
             .distinct()
             .filter { it !in EventCatalog.STANDARD }

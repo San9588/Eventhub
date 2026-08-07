@@ -75,32 +75,32 @@ object Permissions {
 
     fun requiredFor(rule: Rule): List<Need> {
         val out = mutableListOf<Need>()
-        val ev = rule.event
-        if (ev in setOf("fg_app", "app_open", "app_close") || rule.appCtx != null) {
+        val evs = rule.eventActions.toSet() + rule.event
+        if (evs.any { it in setOf("fg_app", "app_open", "app_close") } || rule.appCtx != null) {
             out += Need(
                 "usage", "Usage access", "Detect the foreground app",
                 Kind.SPECIAL, settingsAction = Settings.ACTION_USAGE_ACCESS_SETTINGS
             )
         }
-        if (ev == "notify_post") {
+        if ("notify_post" in evs) {
             out += Need(
                 "notif_listener", "Notification access", "Read posted notifications",
                 Kind.SPECIAL, settingsAction = Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
             )
         }
-        if (ev == "sms") {
+        if ("sms" in evs) {
             out += Need(
                 "sms", "SMS", "Read incoming SMS",
                 Kind.RUNTIME, permission = android.Manifest.permission.RECEIVE_SMS
             )
         }
-        if (ev in setOf("call_in", "call_end")) {
+        if (evs.any { it in setOf("call_in", "call_end") }) {
             out += Need(
                 "phone", "Phone state", "Detect incoming calls",
                 Kind.RUNTIME, permission = android.Manifest.permission.READ_PHONE_STATE
             )
         }
-        if (ev in setOf("bt_conn", "bt_disconn")) {
+        if (evs.any { it in setOf("bt_conn", "bt_disconn") }) {
             out += Need(
                 "bt", "Bluetooth", "Detect bluetooth connections",
                 Kind.RUNTIME, permission = android.Manifest.permission.BLUETOOTH_CONNECT

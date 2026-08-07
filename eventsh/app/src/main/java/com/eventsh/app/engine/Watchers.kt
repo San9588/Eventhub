@@ -36,7 +36,7 @@ object Watchers {
                 val rules = RuleStore.load(ctx)
                 val want = rules.any {
                     it.enabled &&
-                        (it.event in setOf("app_open", "app_close", "fg_app") || it.appCtx != null)
+                        (it.eventActions.any { e -> e in setOf("app_open", "app_close", "fg_app") } || it.appCtx != null)
                 }
                 if (want) {
                     val pkg = foregroundPkg(ctx)
@@ -48,7 +48,7 @@ object Watchers {
                         }
                         EventHub.dispatch("app_open", mapOf("summary" to pkg, "pkg" to pkg))
                         EventHub.dispatch("fg_app", mapOf("summary" to pkg, "pkg" to pkg))
-                        if (rules.any { it.enabled && it.event.isBlank() && it.timeCtx == null && it.appCtx != null }) {
+                        if (rules.any { it.enabled && it.eventActions.isEmpty() && it.event.isBlank() && it.timeCtx == null && it.appCtx != null }) {
                             EventHub.dispatch("app.state", mapOf("summary" to pkg, "pkg" to pkg))
                         }
                     }
@@ -72,13 +72,19 @@ object Watchers {
         while (!Thread.currentThread().isInterrupted) {
             try {
                 val rules = RuleStore.load(ctx)
-                val ramRules = rules.filter { it.enabled && it.event == "ram_pct" && it.filter.toIntOrNull() != null }
-                if (ramRules.isNotEmpty()) {
+                val ramFilter = rules
+                    .filter { it.enabled && it.hasEvent("ram_pct") }
+                    .mapNotNull { it.eventContext?.filter?.toIntOrNull() }
+                    .firstOrNull()
+                if (ramFilter != null) {
                     val (_, pct) = SysStats.mem()
                     EventHub.dispatch("ram_pct", mapOf("summary" to "$pct%", "value" to pct.toString()))
                 }
-                val diskRules = rules.filter { it.enabled && it.event == "disk_free" && it.filter.toLongOrNull() != null }
-                if (diskRules.isNotEmpty()) {
+                val diskFilter = rules
+                    .filter { it.enabled && it.hasEvent("disk_free") }
+                    .mapNotNull { it.eventContext?.filter?.toLongOrNull() }
+                    .firstOrNull()
+                if (diskFilter != null) {
                     val freeMb = SysStats.diskFreeMb()
                     EventHub.dispatch("disk_free", mapOf("summary" to "${freeMb}MB", "value" to freeMb.toString()))
                 }
