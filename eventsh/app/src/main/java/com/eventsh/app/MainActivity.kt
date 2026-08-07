@@ -3,6 +3,7 @@ package com.eventsh.app
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.AlertDialog
+import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -14,7 +15,12 @@ import android.view.WindowInsets
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
+import com.eventsh.app.engine.AppCtx
+import com.eventsh.app.engine.Ctx
+import com.eventsh.app.engine.DayCtx
+import com.eventsh.app.engine.EventCtx
 import com.eventsh.app.engine.EventCatalog
 import com.eventsh.app.engine.EventHub
 import com.eventsh.app.engine.EventLog
@@ -23,7 +29,9 @@ import com.eventsh.app.engine.Rule
 import com.eventsh.app.engine.RuleStore
 import com.eventsh.app.engine.Scheduler
 import com.eventsh.app.engine.SysStats
+import com.eventsh.app.engine.TimeCtx
 import com.eventsh.app.engine.UserVars
+import com.eventsh.app.engine.VarCtx
 import com.eventsh.app.service.EventService
 import com.eventsh.app.ui.TerminalView
 import java.io.File
@@ -102,65 +110,97 @@ class MainActivity : Activity() {
         view.onAddVar = { varDialog(null) }
         view.onEditVar = { row -> varDialog(row) }
         view.onEditRule = { r -> ruleDialog(r) }
+        view.onDeleteRule = { r -> deleteRule(r) }
         view.onAddRule = { ruleDialog(null) }
         view.onAddTimer = { timerDialog() }
     }
 
     private fun ruleDialog(existing: Rule?) {
-        val isTimer = existing?.isOneShotTimer == true || existing?.isDailyTimer == true
-        val labelEt = editText("label")
-        val eventTv = TextView(this).apply {
-            textSize = 18f
-            setPadding(8, 14, 8, 14)
-            if (isTimer) {
-                text = existing?.event ?: "timer"
-                setTextColor(0xFF3C7852.toInt())
-            } else {
-                text = existing?.event ?: "(choose event)"
-                setTextColor(0xFF00FF6E.toInt())
-                setOnClickListener { pickEvent { ev -> text = ev } }
-            }
+        val contexts = (existing?.contexts?.toMutableList() ?: mutableListOf<Ctx>())
+        if (contexts.none { it is EventCtx } && existing != null && existing.event.isNotBlank()) {
+            contexts.add(0, EventCtx(existing.event, existing.filter))
         }
-        val cdEt = editText("cooldown seconds (0)")
-        val rtEt = editText("retries on failure (0)")
+
+        val labelEt = editText("label")
         val taskEt = editText("termux task name")
         val textEt = editText("notify text (%VAR% ok)")
         val rootEt = editText("root command")
-        val filterEt = editText("filter (substring)")
+        val cdEt = editText("cooldown seconds (0)")
+        val rtEt = editText("retries on failure (0)")
         val notifyCb = checkBox("show notification")
         if (existing != null) {
             labelEt.setText(existing.label)
-            cdEt.setText(existing.cooldownSec.toString())
-            rtEt.setText(existing.retries.toString())
             taskEt.setText(existing.taskName)
             textEt.setText(existing.notifyText)
             rootEt.setText(existing.rootCmd)
-            filterEt.setText(existing.filter)
+            cdEt.setText(existing.cooldownSec.toString())
+            rtEt.setText(existing.retries.toString())
             notifyCb.isChecked = existing.notify
         } else {
             notifyCb.isChecked = true
         }
+
+        // ---- contexts editor (Tasker-style: Event / Time / Day / Variable / App) ----
+        val ctxBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun refreshCtx() {
+            ctxBox.removeAllViews()
+            if (contexts.isEmpty()) {
+                ctxBox.addView(TextView(this).apply {
+                    text = "(no contexts yet - add one)"
+                    textSize = 16f
+                    setTextColor(0xFF3C7852.toInt())
+                    setPadding(8, 10, 8, 10)
+                })
+            } else {
+                for (i in contexts.indices) {
+                    val c = contexts[i]
+                    val tag = when (c.type) {
+                        Ctx.EVENT -> "EV"
+                        Ctx.TIME -> "TM"
+                        Ctx.DAY -> "DY"
+                        Ctx.VAR -> "VA"
+                        Ctx.APP -> "AP"
+                        else -> "??"
+                    }
+                    val idx = i
+                    ctxBox.addView(ctxRow("[$tag] ${c.summary()}", 0xFF00FF6E.toInt()) {
+                        editContext(contexts, idx) { refreshCtx() }
+                    })
+                }
+            }
+            ctxBox.addView(ctxRow("[ + ADD CONTEXT ]", 0xFFFFB020.toInt()) {
+                addContext(contexts) { refreshCtx() }
+            })
+        }
+        refreshCtx()
+
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(eventTv)
             addView(labelEt)
-            addView(cdEt)
-            addView(rtEt)
+            addView(sectionLabel("CONTEXTS"))
+            addView(ctxBox)
+            addView(sectionLabel("TASK"))
             addView(taskEt)
             addView(textEt)
             addView(rootEt)
-            addView(filterEt)
+            addView(sectionLabel("TIMING"))
+            addView(cdEt)
+            addView(rtEt)
             addView(notifyCb)
         }
+        val scroll = ScrollView(this).apply { addView(ll) }
+
         val d = AlertDialog.Builder(this)
             .setTitle(if (existing == null) "ADD RULE" else "EDIT RULE")
-            .setMessage("tap event to choose (custom = any broadcast action)")
-            .setView(ll)
+            .setMessage("tap a context to edit it\nall contexts must match (AND)")
+            .setView(scroll)
             .setPositiveButton("SAVE") { _, _ ->
-                val event = if (isTimer) (existing?.event ?: "timer")
-                else eventTv.text.toString().trim()
-                if (event.isEmpty() || event == "(choose event)") {
-                    EventLog.push("[ui] choose an event first")
+                val eventCtx = contexts.filterIsInstance<EventCtx>().firstOrNull()
+                val timeCtx = contexts.filterIsInstance<TimeCtx>().firstOrNull()
+                val event = eventCtx?.action ?: ""
+                val filter = eventCtx?.filter ?: ""
+                if (event.isBlank() && timeCtx == null) {
+                    EventLog.push("[ui] add an EVENT or TIME context")
                     return@setPositiveButton
                 }
                 val base = existing ?: Rule(
@@ -170,20 +210,24 @@ class MainActivity : Activity() {
                 val newRule = base.copy(
                     label = labelEt.text.toString().trim().ifBlank { "RULE" },
                     event = event,
+                    filter = filter,
+                    contexts = contexts,
                     enabled = true,
                     cooldownSec = cdEt.text.toString().toLongOrNull() ?: 0L,
                     retries = (rtEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 10),
                     taskName = taskEt.text.toString().trim(),
                     notifyText = textEt.text.toString(),
                     rootCmd = rootEt.text.toString().trim(),
-                    filter = filterEt.text.toString().trim(),
                     notify = notifyCb.isChecked
                 )
                 val cur = RuleStore.load(this).toMutableList()
                 val i = cur.indexOfFirst { it.id == base.id }
                 if (i >= 0) cur[i] = newRule else cur.add(newRule)
                 RuleStore.save(this, cur)
-                if (newRule.isOneShotTimer || newRule.isDailyTimer) Scheduler.schedule(this, newRule)
+                when {
+                    newRule.isOneShotTimer || newRule.isDailyTimer -> Scheduler.schedule(this, newRule)
+                    newRule.event.isBlank() && newRule.timeCtx != null -> Scheduler.scheduleCtx(this, newRule)
+                }
                 if (isServiceRunning()) EventHub.resync(this)
                 refreshScreen()
             }
@@ -199,6 +243,293 @@ class MainActivity : Activity() {
             }
         }
         d.show()
+    }
+
+    private fun deleteRule(r: Rule) {
+        AlertDialog.Builder(this)
+            .setTitle("DELETE RULE")
+            .setMessage("delete '${r.label}'?")
+            .setPositiveButton("DELETE") { _, _ ->
+                Scheduler.cancel(this, r)
+                val cur = RuleStore.load(this).toMutableList()
+                cur.removeAll { it.id == r.id }
+                RuleStore.save(this, cur)
+                if (isServiceRunning()) EventHub.resync(this)
+                refreshScreen()
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    // ------------------------------------------------------------ context editors
+    private fun addContext(list: MutableList<Ctx>, refresh: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle("ADD CONTEXT")
+            .setItems(arrayOf("EVENT", "TIME", "DAY", "VARIABLE", "APP")) { _, which ->
+                when (which) {
+                    0 -> {
+                        if (list.any { it is EventCtx }) {
+                            EventLog.push("[ui] replacing existing EVENT context")
+                            list.removeAll { it is EventCtx }
+                        }
+                        eventCtxDialog(null, { list.add(it); refresh() }, null)
+                    }
+                    1 -> timeCtxDialog(null, { list.add(it); refresh() }, null)
+                    2 -> dayCtxDialog(null, { list.add(it); refresh() }, null)
+                    3 -> varCtxDialog(null, { list.add(it); refresh() }, null)
+                    4 -> appCtxDialog(null, { list.add(it); refresh() }, null)
+                }
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    private fun editContext(list: MutableList<Ctx>, index: Int, refresh: () -> Unit) {
+        when (val c = list[index]) {
+            is EventCtx -> eventCtxDialog(c, { list[index] = it; refresh() }, { list.removeAt(index); refresh() })
+            is TimeCtx -> timeCtxDialog(c, { list[index] = it; refresh() }, { list.removeAt(index); refresh() })
+            is DayCtx -> dayCtxDialog(c, { list[index] = it; refresh() }, { list.removeAt(index); refresh() })
+            is VarCtx -> varCtxDialog(c, { list[index] = it; refresh() }, { list.removeAt(index); refresh() })
+            is AppCtx -> appCtxDialog(c, { list[index] = it; refresh() }, { list.removeAt(index); refresh() })
+        }
+    }
+
+    private fun eventCtxDialog(existing: EventCtx?, onSave: (EventCtx) -> Unit, onRemove: (() -> Unit)?) {
+        var action = existing?.action ?: ""
+        val actionTv = TextView(this).apply {
+            textSize = 16f
+            setPadding(8, 14, 8, 14)
+            text = if (action.isBlank()) "(choose event)" else action
+            setTextColor(0xFF00FF6E.toInt())
+            setOnClickListener { pickEvent { ev -> action = ev; text = ev } }
+        }
+        val filterEt = editText("filter (substring or number)")
+        val prioEt = editText("priority (5)")
+        val stopCb = checkBox("stop event (consume for other profiles)")
+        if (existing != null) {
+            filterEt.setText(existing.filter)
+            prioEt.setText(existing.priority.toString())
+            stopCb.isChecked = existing.stopEvent
+        }
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(actionTv)
+            addView(filterEt)
+            addView(prioEt)
+            addView(stopCb)
+        }
+        val d = AlertDialog.Builder(this)
+            .setTitle("EVENT CONTEXT")
+            .setMessage("tap event name to choose")
+            .setView(ll)
+            .setPositiveButton("OK") { _, _ ->
+                if (action.isBlank()) {
+                    EventLog.push("[ui] choose an event first")
+                    return@setPositiveButton
+                }
+                onSave(
+                    EventCtx(
+                        action = action,
+                        filter = filterEt.text.toString().trim(),
+                        priority = (prioEt.text.toString().toIntOrNull() ?: 5).coerceIn(1, 10),
+                        stopEvent = stopCb.isChecked
+                    )
+                )
+            }
+            .setNegativeButton("CANCEL", null)
+        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
+        d.show()
+    }
+
+    private fun timeCtxDialog(existing: TimeCtx?, onSave: (TimeCtx) -> Unit, onRemove: (() -> Unit)?) {
+        var from = existing?.from ?: ""
+        var to = existing?.to ?: ""
+        val repeatEt = editText("repeat every N minutes (0 = no repeat)")
+        if (existing != null && existing.repeatMin > 0) repeatEt.setText(existing.repeatMin.toString())
+
+        val fromTv = TextView(this).apply {
+            textSize = 16f
+            setPadding(8, 14, 8, 14)
+            text = "From: ${TimeCtx.display(from)}"
+            setTextColor(0xFF00FF6E.toInt())
+            setOnClickListener {
+                val (h, m) = hm(from)
+                TimePickerDialog(this@MainActivity, { _, hh, mm ->
+                    from = String.format(Locale.US, "%02d:%02d", hh, mm)
+                    text = "From: $from"
+                }, h, m, true).show()
+            }
+        }
+        val toTv = TextView(this).apply {
+            textSize = 16f
+            setPadding(8, 14, 8, 14)
+            text = "To: ${TimeCtx.display(to)}"
+            setTextColor(0xFF00FF6E.toInt())
+            setOnClickListener {
+                val (h, m) = hm(to)
+                TimePickerDialog(this@MainActivity, { _, hh, mm ->
+                    to = String.format(Locale.US, "%02d:%02d", hh, mm)
+                    text = "To: $to"
+                }, h, m, true).show()
+            }
+        }
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(fromTv)
+            addView(toTv)
+            addView(repeatEt)
+        }
+        val d = AlertDialog.Builder(this)
+            .setTitle("TIME CONTEXT")
+            .setMessage("from=to => instant point\nevery N min => repeat within range")
+            .setView(ll)
+            .setPositiveButton("OK") { _, _ ->
+                val rep = (repeatEt.text.toString().toIntOrNull() ?: 0).coerceAtLeast(0)
+                onSave(TimeCtx(from, to, rep))
+            }
+            .setNegativeButton("CANCEL", null)
+        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
+        d.show()
+    }
+
+    private fun hm(hhmm: String): Pair<Int, Int> {
+        val parts = hhmm.split(":")
+        return (parts.getOrNull(0)?.toIntOrNull() ?: 0) to (parts.getOrNull(1)?.toIntOrNull() ?: 0)
+    }
+
+    private fun dayCtxDialog(existing: DayCtx?, onSave: (DayCtx) -> Unit, onRemove: (() -> Unit)?) {
+        val names = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+        val dowCbs = names.mapIndexed { i, n ->
+            checkBox(n).apply { isChecked = existing?.dow?.contains(i + 1) == true }
+        }
+        val domEt = editText("days of month (comma: 1,15,28)")
+        if (existing != null) domEt.setText(existing.dom.joinToString(","))
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            dowCbs.forEach { addView(it) }
+            addView(domEt)
+        }
+        val d = AlertDialog.Builder(this)
+            .setTitle("DAY CONTEXT")
+            .setMessage("days of week + days of month both apply (AND)")
+            .setView(ll)
+            .setPositiveButton("OK") { _, _ ->
+                onSave(
+                    DayCtx(
+                        dow = dowCbs.mapIndexedNotNull { i, cb -> if (cb.isChecked) i + 1 else null },
+                        dom = domEt.text.toString().split(",")
+                            .mapNotNull { it.trim().toIntOrNull() }
+                            .filter { it in 1..31 }
+                    )
+                )
+            }
+            .setNegativeButton("CANCEL", null)
+        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
+        d.show()
+    }
+
+    private fun varCtxDialog(existing: VarCtx?, onSave: (VarCtx) -> Unit, onRemove: (() -> Unit)?) {
+        val nameEt = editText("variable name")
+        val valEt = editText("value pattern (* = any)")
+        val invCb = checkBox("invert (does NOT match)")
+        if (existing != null) {
+            nameEt.setText(existing.name)
+            valEt.setText(existing.value)
+            invCb.isChecked = existing.invert
+        }
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(nameEt)
+            addView(valEt)
+            addView(invCb)
+        }
+        val d = AlertDialog.Builder(this)
+            .setTitle("VARIABLE CONTEXT")
+            .setMessage("rule fires when variable matches the value pattern")
+            .setView(ll)
+            .setPositiveButton("OK") { _, _ ->
+                val n = nameEt.text.toString().trim()
+                if (n.isEmpty()) {
+                    EventLog.push("[ui] variable name required")
+                    return@setPositiveButton
+                }
+                onSave(VarCtx(n, valEt.text.toString(), invCb.isChecked))
+            }
+            .setNegativeButton("CANCEL", null)
+        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
+        d.show()
+    }
+
+    private fun appCtxDialog(existing: AppCtx?, onSave: (AppCtx) -> Unit, onRemove: (() -> Unit)?) {
+        val pkgs = existing?.packages?.toMutableSet() ?: mutableSetOf<String>()
+        val pickTv = TextView(this).apply {
+            textSize = 16f
+            setPadding(8, 14, 8, 14)
+            text = if (pkgs.isEmpty()) "(select apps)" else "${pkgs.size} selected"
+            setTextColor(0xFF00FF6E.toInt())
+            setOnClickListener {
+                appPick(pkgs) { sel ->
+                    pkgs.clear()
+                    pkgs.addAll(sel)
+                    text = if (sel.isEmpty()) "(select apps)" else "${sel.size} selected"
+                }
+            }
+        }
+        val fgCb = checkBox("foreground only").apply { isChecked = existing?.foregroundOnly ?: true }
+        val invCb = checkBox("invert (any app EXCEPT these)").apply { isChecked = existing?.invert ?: false }
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(pickTv)
+            addView(fgCb)
+            addView(invCb)
+        }
+        val d = AlertDialog.Builder(this)
+            .setTitle("APP CONTEXT")
+            .setView(ll)
+            .setPositiveButton("OK") { _, _ ->
+                onSave(AppCtx(pkgs.toList(), fgCb.isChecked, invCb.isChecked))
+            }
+            .setNegativeButton("CANCEL", null)
+        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
+        d.show()
+    }
+
+    private fun appPick(selected: Set<String>, onDone: (List<String>) -> Unit) {
+        val pm = packageManager
+        val infos = try {
+            pm.queryIntentActivities(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0
+            ).sortedBy { it.loadLabel(pm).toString() }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val labels = infos.map { it.loadLabel(pm).toString() }
+        val pkgs = infos.map { it.activityInfo.packageName }
+        val checked = BooleanArray(infos.size) { selected.contains(pkgs[it]) }
+        AlertDialog.Builder(this)
+            .setTitle("SELECT APPS")
+            .setMultiChoiceItems(labels.toTypedArray(), checked) { _, i, ch -> checked[i] = ch }
+            .setPositiveButton("OK") { _, _ ->
+                onDone(pkgs.filterIndexed { i, _ -> checked[i] })
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    private fun sectionLabel(text: String): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 14f
+        setTextColor(0xFF3C7852.toInt())
+        setPadding(8, 12, 8, 2)
+    }
+
+    private fun ctxRow(text: String, color: Int, onClick: () -> Unit): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 16f
+        setTextColor(color)
+        setPadding(8, 12, 8, 12)
+        setBackgroundColor(0xFF071209.toInt())
+        setOnClickListener { onClick() }
     }
 
     private fun pickEvent(onPick: (String) -> Unit) {

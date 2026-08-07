@@ -83,15 +83,24 @@ object EventHub {
     fun fireDirect(ctx: Context, event: String, data: Map<String, String>) {
         val rules = RuleStore.load(ctx).filter { it.enabled && it.event == event }
         if (rules.isEmpty()) return
+        rules.sortedByDescending { it.eventContext?.priority ?: 5 }
+            .forEach { fireRule(ctx, it, event, data) }
+    }
+
+    /**
+     * Fires a single rule for an event, applying cooldown/debounce, the event
+     * filter, and the remaining context gates (time/day/var/app).
+     */
+    fun fireRule(ctx: Context, rule: Rule, event: String, data: Map<String, String>) {
+        if (!rule.enabled) return
         val now = System.currentTimeMillis()
-        for (r in rules) {
-            val last = lastFire[r.id] ?: 0L
-            val waitMs = r.cooldownSec * 1000L + r.debounceMs
-            if (now - last < waitMs) continue
-            if (!passesFilter(r, data)) continue
-            lastFire[r.id] = now
-            Dispatcher.fire(ctx, r, event, data)
-        }
+        val last = lastFire[rule.id] ?: 0L
+        val waitMs = rule.cooldownSec * 1000L + rule.debounceMs
+        if (now - last < waitMs) return
+        if (!passesFilter(rule, data)) return
+        if (!ContextGate.check(ctx, rule, data)) return
+        lastFire[rule.id] = now
+        Dispatcher.fire(ctx, rule, event, data)
     }
 
     private fun passesFilter(r: Rule, data: Map<String, String>): Boolean {

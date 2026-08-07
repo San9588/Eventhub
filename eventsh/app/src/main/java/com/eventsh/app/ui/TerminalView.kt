@@ -27,6 +27,7 @@ class TerminalView(context: Context) : View(context) {
 
     var onToggleRule: ((Rule) -> Unit)? = null
     var onEditRule: ((Rule) -> Unit)? = null
+    var onDeleteRule: ((Rule) -> Unit)? = null
     var onAddRule: (() -> Unit)? = null
     var onAddTimer: (() -> Unit)? = null
     var onNav: ((Int) -> Unit)? = null
@@ -52,7 +53,7 @@ class TerminalView(context: Context) : View(context) {
         get() = (resources.displayMetrics.density * 2f).toInt().coerceAtLeast(3).toFloat()
 
     private val rowsStart = 44f
-    private val rowH = 20f
+    private val rowH = 26f
 
     override fun onDraw(canvas: Canvas) {
         val u = pp.toFloat()
@@ -74,7 +75,7 @@ class TerminalView(context: Context) : View(context) {
     // ------------------------------------------------------------- helpers
     private fun drawText(c: Canvas, text: String, x: Float, y: Float, scale: Int, color: Int, bg: Int? = null) {
         val u = pp.toFloat()
-        textPaint.textSize = 8.5f * scale * u
+        textPaint.textSize = 10f * scale * u
         textPaint.color = color
         if (bg != null) {
             paint.color = bg
@@ -85,7 +86,7 @@ class TerminalView(context: Context) : View(context) {
 
     private fun textWidth(text: String, scale: Int): Float {
         val u = pp.toFloat()
-        textPaint.textSize = 8.5f * scale * u
+        textPaint.textSize = 10f * scale * u
         return textPaint.measureText(text) / u
     }
 
@@ -148,7 +149,7 @@ class TerminalView(context: Context) : View(context) {
         drawText(c, rootTxt, W - 6 - rw, 41f, 1, if (rootOk) P.AMBER else P.DIM)
 
         // list header
-        drawText(c, "EVENT", 10f, 53f, 1, P.DIM)
+        drawText(c, "RULES", 10f, 53f, 1, P.DIM)
         drawText(c, "ARM", W - 16, 53f, 1, P.DIM)
         paint.color = P.DIMROW
         c.drawRect(4 * pp, 61 * pp, (W - 4) * pp, 62 * pp, paint)
@@ -165,6 +166,7 @@ class TerminalView(context: Context) : View(context) {
         val save = c.save()
         c.clipRect(0f, listTop * pp, width.toFloat(), listBottom * pp)
         rowEditRects.clear()
+        rowDelRects.clear()
         var i = 0
         for (r in rules) {
             val y = listTop + i * rowH - scrollY
@@ -175,17 +177,21 @@ class TerminalView(context: Context) : View(context) {
             drawDot(c, 5f, y + 3, if (r.enabled) P.GREEN else P.OFF)
             drawText(c, r.label, 10f, y + 2, 1, if (r.enabled) P.GREEN else P.OFF)
             drawToggle(c, W - 16, y + 1, r.enabled)
-            if (r.taskName.isNotBlank()) {
-                drawText(c, "> ${r.taskName}", 10f, y + 11, 1, P.TXT)
-                if (r.cooldownSec > 0) {
-                    val cd = "cd ${r.cooldownSec}s"
-                    drawText(c, cd, W - 10 - textWidth(cd, 1), y + 11, 1, P.AMBER)
-                }
+            // line 2: context summary (truncated)
+            val cl = r.contextLine()
+            val maxW = (W - 18 - 20).coerceAtLeast(4f)
+            var shown = cl
+            if (shown.isNotEmpty()) {
+                while (shown.isNotEmpty() && textWidth(shown, 1) > maxW) shown = shown.dropLast(1)
+                drawText(c, shown, 10f, y + 15, 1, P.TXT)
             }
-            // edit button (E)
-            drawBox(c, W - 8, y + 11, 7f, 8f, P.BG2, P.BORDER)
-            drawText(c, "E", W - 7, y + 12, 1, P.GREEN)
-            rowEditRects.add(Box(W - 8, y + 11, 7f, 8f))
+            // edit (E) and delete (X) buttons
+            drawBox(c, W - 16, y + 13, 7f, 8f, P.BG2, P.BORDER)
+            drawText(c, "E", W - 15, y + 14, 1, P.GREEN)
+            rowEditRects.add(Box(W - 16, y + 13, 7f, 8f))
+            drawBox(c, W - 8, y + 13, 7f, 8f, P.BG2, P.BORDER)
+            drawText(c, "X", W - 7, y + 14, 1, P.RED)
+            rowDelRects.add(Box(W - 8, y + 13, 7f, 8f))
             i++
         }
         c.restoreToCount(save)
@@ -206,10 +212,15 @@ class TerminalView(context: Context) : View(context) {
         drawText(c, "$ramText $cpuText", 4f, navTop + 2, 1, P.TXT)
         val armedTxt = "${armedCount}/${rules.size} ARM"
         drawText(c, armedTxt, W - textWidth(armedTxt, 1) - 2, navTop + 2, 1, P.AMBER)
-        if (rules.isEmpty()) drawText(c, "no rules", (W - textWidth("no rules", 1)) / 2, navTop - 8, 1, P.OFF)
+        if (rules.isEmpty()) {
+            val midY = (listTop + listBottom) / 2f
+            drawText(c, "no rules yet", (W - textWidth("no rules yet", 1)) / 2, midY - 8, 1, P.OFF)
+            drawText(c, "[+] ADD A RULE", (W - textWidth("[+] ADD A RULE", 1)) / 2, midY + 3, 1, P.GREEN)
+        }
     }
 
     private val rowEditRects = ArrayList<Box>()
+    private val rowDelRects = ArrayList<Box>()
     private var lastAddRuleRect: Box? = null
     private var lastAddTimerRect: Box? = null
 
@@ -226,7 +237,7 @@ class TerminalView(context: Context) : View(context) {
         var y = 33f
         for (line in logs) {
             drawText(c, line, 6f, y, 1, P.TXT)
-            y += 9
+            y += 12
             if (y > navTop) break
         }
         if (logs.isEmpty()) drawText(c, "no events yet", (W - textWidth("no events yet", 1)) / 2, 40f, 1, P.OFF)
@@ -245,7 +256,7 @@ class TerminalView(context: Context) : View(context) {
         fun line(label: String, value: String, vcolor: Int) {
             drawText(c, label, 8f, y, 1, P.TXT)
             drawText(c, value, W - 8 - textWidth(value, 1), y, 1, vcolor)
-            y += 9
+            y += 11
         }
         line("ROOT", if (rootChecked) (if (rootOk) "ON" else "OFF") else "?",
             if (rootOk) P.AMBER else P.DIM)
@@ -302,7 +313,7 @@ class TerminalView(context: Context) : View(context) {
         val navTop = H - 26f
         val listTop = 44f
         val listH = navTop - listTop
-        val rowHv = 9f
+        val rowHv = 12f
         val totalH = userVars.size * rowHv
         val maxScroll = (totalH - listH).coerceAtLeast(0f)
         varScroll = varScroll.coerceIn(0f, maxScroll)
@@ -399,6 +410,11 @@ class TerminalView(context: Context) : View(context) {
                 if (y > navTop - 10f) return true
                 val idx = ((y - 63f + scrollY) / rowH).toInt()
                 if (idx in rules.indices) {
+                    val db = rowDelRects.getOrNull(idx)
+                    if (db != null && x >= db.x && x <= db.x + db.w && y >= db.y && y <= db.y + db.h) {
+                        onDeleteRule?.invoke(rules[idx])
+                        return true
+                    }
                     val eb = rowEditRects.getOrNull(idx)
                     if (eb != null && x >= eb.x && x <= eb.x + eb.w && y >= eb.y && y <= eb.y + eb.h) {
                         onEditRule?.invoke(rules[idx])
@@ -414,7 +430,7 @@ class TerminalView(context: Context) : View(context) {
                     return true
                 }
                 if (y > varRowsStart && y < navTop) {
-                    val idx = ((y - varRowsStart + varScroll) / 9f).toInt()
+                    val idx = ((y - varRowsStart + varScroll) / 12f).toInt()
                     if (idx in userVars.indices) onEditVar?.invoke(userVars[idx])
                 }
             }

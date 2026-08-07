@@ -34,7 +34,10 @@ object Watchers {
         while (!Thread.currentThread().isInterrupted) {
             try {
                 val rules = RuleStore.load(ctx)
-                val want = rules.any { it.enabled && it.event in setOf("app_open", "app_close", "fg_app") }
+                val want = rules.any {
+                    it.enabled &&
+                        (it.event in setOf("app_open", "app_close", "fg_app") || it.appCtx != null)
+                }
                 if (want) {
                     val pkg = foregroundPkg(ctx)
                     if (pkg != null && pkg != lastFg) {
@@ -57,6 +60,9 @@ object Watchers {
             }
         }
     }
+
+    /** Current foreground package (updated only while a watcher needs it). */
+    fun foregroundNow(): String? = lastFg.takeIf { it.isNotEmpty() }
 
     private fun loopStats() {
         val ctx = ctxRef ?: return
