@@ -24,6 +24,7 @@ import com.eventsh.app.engine.EventCtx
 import com.eventsh.app.engine.EventCatalog
 import com.eventsh.app.engine.EventHub
 import com.eventsh.app.engine.EventLog
+import com.eventsh.app.engine.Permissions
 import com.eventsh.app.engine.RootBridge
 import com.eventsh.app.engine.Rule
 import com.eventsh.app.engine.RuleStore
@@ -232,6 +233,11 @@ class MainActivity : Activity() {
                 }
                 if (isServiceRunning()) EventHub.resync(this)
                 refreshScreen()
+                val missing = Permissions.requiredFor(newRule).filter { !it.granted(this) }
+                if (missing.isNotEmpty()) {
+                    EventLog.push("[perm] ${missing.joinToString(", ") { it.label }}")
+                    showPermissionsDialog(missing)
+                }
             }
             .setNegativeButton("CANCEL", null)
         if (existing != null) {
@@ -260,6 +266,38 @@ class MainActivity : Activity() {
                 refreshScreen()
             }
             .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    /** Tasker-style permission prompt: tap a row to set up that permission. */
+    private fun showPermissionsDialog(missing: List<Permissions.Need>) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(56, 16, 56, 24)
+        }
+        box.addView(TextView(this).apply {
+            text = "Tap each one to set it up"
+            textSize = 13f
+            setTextColor(0xFF9DCAAD.toInt())
+        })
+        missing.forEach { need ->
+            box.addView(TextView(this).apply {
+                text = "[ ${need.label} ]  SET"
+                setPadding(0, 28, 0, 2)
+                textSize = 17f
+                setTextColor(0xFF37F08B.toInt())
+                setOnClickListener { need.open(this@MainActivity) }
+            })
+            box.addView(TextView(this).apply {
+                text = need.detail
+                textSize = 12f
+                setTextColor(0xFF9DCAAD.toInt())
+            })
+        }
+        AlertDialog.Builder(this)
+            .setTitle("PERMISSIONS NEEDED")
+            .setView(box)
+            .setPositiveButton("DONE", null)
             .show()
     }
 

@@ -13,7 +13,11 @@ class ShellEventReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != "com.eventsh.SHELL_EVENT") return
         val name = intent.getStringExtra("name") ?: "shell_event"
-        val summary = intent.getStringExtra("summary") ?: name
-        EventHub.dispatch(name, mapOf("summary" to summary))
+        val data = HashMap<String, String>()
+        intent.extras?.keySet()?.forEach { k ->
+            intent.getStringExtra(k)?.let { data[k] = it }
+        }
+        if (!data.containsKey("summary")) data["summary"] = name
+        EventHub.dispatch(name, data)
     }
 }
