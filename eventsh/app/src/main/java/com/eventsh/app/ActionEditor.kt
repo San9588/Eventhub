@@ -410,7 +410,7 @@ object ActionEditor {
                         "Tick to run it with su. Otherwise Shizuku is used when granted, or you get a " +
                         "notification telling you what to enable.",
                     12f, C.hint
-                ).apply { setPadding(dp(2f), dp(2f), dp(2f), dp(8f)) }
+                ).apply { setPadding(dp(a, 2f), dp(a, 2f), dp(a, 2f), dp(a, 8f)) }
             )
         }
 

@@ -7,6 +7,10 @@ android {
     namespace = "com.eventsh.app"
     compileSdk = 35
 
+    buildFeatures {
+        aidl = true
+    }
+
     defaultConfig {
         applicationId = "com.eventsh.app"
         minSdk = 26
