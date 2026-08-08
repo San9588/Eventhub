@@ -10,8 +10,10 @@ import android.os.IBinder
 import com.eventsh.app.engine.Dispatcher
 import com.eventsh.app.engine.EventHub
 import com.eventsh.app.engine.EventLog
+import com.eventsh.app.engine.Privilege
 import com.eventsh.app.engine.RootBridge
 import com.eventsh.app.engine.Scheduler
+import com.eventsh.app.engine.ShizukuClient
 import com.eventsh.app.engine.Watchers
 
 class EventService : Service() {
@@ -38,11 +40,14 @@ class EventService : Service() {
         } else {
             startForeground(1, n)
         }
+        Privilege.ensureChannel(this)
+        ShizukuClient.init(this)
         EventHub.register(this)
         EventLog.push("[svc] started (fg)")
         RootBridge.checkAsync()
         Watchers.start(this)
         Scheduler.rescheduleAll(this)
+        com.eventsh.app.engine.AlarmEngine.rescheduleAll(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

@@ -2,6 +2,9 @@ package com.eventsh.app
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.TimePickerDialog
+import android.content.Intent
+import android.media.RingtoneManager
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -26,6 +29,27 @@ import com.eventsh.app.ui.UI
  * and TaskActivity so a task's action list behaves identically everywhere.
  */
 object ActionEditor {
+
+    const val REQ_RINGTONE = 7001
+
+    @Volatile var pendingRingtone: ((android.net.Uri?) -> Unit)? = null
+
+    fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQ_RINGTONE) {
+            val cb = pendingRingtone
+            pendingRingtone = null
+            if (cb != null) {
+                if (resultCode == Activity.RESULT_OK) {
+                    val uri = data?.getParcelableExtra<android.net.Uri>(
+                        RingtoneManager.EXTRA_RINGTONE_PICKED_URI
+                    )
+                    cb(uri)
+                } else {
+                    cb(null)
+                }
+            }
+        }
+    }
 
     fun dp(a: Activity, v: Float): Int = UI.dp(a, v)
 
@@ -72,6 +96,11 @@ object ActionEditor {
         Actions.VAR_QUERY -> Triple("variable to query", "store result in variable", "default if unset")
         Actions.IF -> Triple("condition: %var = x | %var > 5 | %var ~ *foo*", null, null)
         Actions.FOR -> Triple("values: 1..5 | a,b,c | %arr", "loop variable (default %loop)", null)
+        Actions.WAIT -> Triple("seconds to wait", null, null)
+        Actions.WAIT_UNTIL -> Triple("condition: %var = x | %var > 5", "timeout seconds (default 30)", null)
+        Actions.GOTO -> Triple("action number to jump to", null, null)
+        Actions.CANCEL_ALARM -> Triple("alarm label to cancel (blank = all)", null, null)
+        Actions.ALARM_VOLUME -> Triple("alarm volume 0-15", null, null)
         Actions.TASK_RUN, Actions.TASK_STOP, Actions.TASK_ENABLE, Actions.TASK_DISABLE ->
             Triple("task name or id", null, null)
         Actions.PROFILE_ENABLE, Actions.PROFILE_DISABLE, Actions.PROFILE_DELETE ->
@@ -331,6 +360,12 @@ object ActionEditor {
         onRemove: (() -> Unit)? = null
     ) {
         val type = existing.type
+
+        if (type == Actions.SET_ALARM) {
+            alarmDialog(a, existing, onSave, onRemove)
+            return
+        }
+
         val (vh, eh, e2h) = actionFieldHints(type)
 
         val ll = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
@@ -346,6 +381,7 @@ object ActionEditor {
         var extraEt: EditText? = null
         var extra2Et: EditText? = null
         var appendCb: CheckBox? = null
+        var suCb: CheckBox? = null
 
         if (vh != null) {
             valueEt = editText(a, vh).apply { setText(existing.value) }
@@ -363,6 +399,20 @@ object ActionEditor {
             extra2Et = editText(a, e2h).apply { setText(existing.extra2) }
             ll.addView(extra2Et)
         }
+        if (Actions.needsPrivilege(type) && type != Actions.SET_ALARM) {
+            suCb = checkBox(a, "Run with su (root)")
+                .apply { isChecked = existing.extra2 == "su" }
+            ll.addView(suCb)
+            ll.addView(
+                UI.text(
+                    a,
+                    "The standard API for this action is restricted on newer Android versions. " +
+                        "Tick to run it with su. Otherwise Shizuku is used when granted, or you get a " +
+                        "notification telling you what to enable.",
+                    12f, C.hint
+                ).apply { setPadding(dp(2f), dp(2f), dp(2f), dp(8f)) }
+            )
+        }
 
         var condStr = existing.cond
         if (!Actions.isFlow(type)) {
@@ -374,15 +424,119 @@ object ActionEditor {
             .setTitle("ACTION  ${existing.label()}")
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
-                val extra2 = if (type == Actions.VAR_SET) {
-                    if (appendCb?.isChecked == true) "append" else ""
-                } else {
-                    extra2Et?.text?.toString() ?: ""
+                val extra2 = when {
+                    type == Actions.VAR_SET -> if (appendCb?.isChecked == true) "append" else ""
+                    suCb != null -> if (suCb!!.isChecked) "su" else ""
+                    else -> extra2Et?.text?.toString() ?: ""
                 }
                 onSave(Action(type, valueEt?.text?.toString() ?: "", extraEt?.text?.toString() ?: "", extra2, condStr))
             }
             .setNegativeButton("CANCEL", null)
         if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
         d.show()
+    }
+
+    /** Custom editor for the Set Alarm action: time, snooze, vibration, label, sound. */
+    private fun alarmDialog(
+        a: Activity,
+        existing: Action,
+        onSave: (Action) -> Unit,
+        onRemove: (() -> Unit)?
+    ) {
+        var hour = existing.value.split(":").getOrNull(0)?.toIntOrNull() ?: 7
+        var minute = existing.value.split(":").getOrNull(1)?.toIntOrNull() ?: 0
+        var cfg = Actions.alarmCfg(existing.extra2)
+
+        val labelEt = editText(a, "alarm label").apply { setText(existing.extra) }
+        val snoozeEt = editText(a, "snooze retry minutes (0 = off)").apply {
+            setText(if (cfg.snoozeMin > 0) cfg.snoozeMin.toString() else "0")
+        }
+        val vibrateCb = checkBox(a, "vibration on").apply { isChecked = cfg.vibrate }
+        val suCb = checkBox(a, "Run with su (opens system clock app)").apply { isChecked = cfg.useSu }
+
+        lateinit var timeTv: TextView
+        timeTv = TextView(a).apply {
+            textSize = 18f
+            text = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
+            setTextColor(C.primary)
+            setPadding(dp(a, 10f), dp(a, 12f), dp(a, 10f), dp(a, 12f))
+            background = UI.rounded(C.surface, 10f, C.border, 1f)
+            setOnClickListener {
+                TimePickerDialog(a, { _, h, m ->
+                    hour = h
+                    minute = m
+                    timeTv.text = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
+                }, hour, minute, true).show()
+            }
+        }
+
+        var soundName = if (cfg.sound.isBlank()) "Default system alarm" else cfg.sound
+        lateinit var soundTv: TextView
+        soundTv = ctxRow(a, "SOUND: $soundName", C.accent) {
+            val pick = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select alarm sound")
+                putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, defaultUri(cfg.sound))
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+            }
+            pendingRingtone = { uri ->
+                if (uri == null) {
+                    cfg = cfg.copy(sound = "")
+                    soundTv.text = "SOUND: Default system alarm"
+                } else {
+                    cfg = cfg.copy(sound = uri.toString())
+                    soundTv.text = "SOUND: $uri"
+                }
+            }
+            try {
+                (a as? android.app.Activity)?.startActivityForResult(pick, REQ_RINGTONE)
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(a, "Ringtone picker unavailable", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        val ll = LinearLayout(a).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(sectionLabel(a, "TIME"))
+            addView(timeTv)
+            addView(sectionLabel(a, "ALARM"))
+            addView(labelEt)
+            addView(snoozeEt)
+            addView(vibrateCb)
+            addView(soundTv)
+            addView(suCb)
+        }
+
+        val d = AlertDialog.Builder(a)
+            .setTitle("ACTION  ${existing.label()}")
+            .setView(ll)
+            .setPositiveButton("OK") { _, _ ->
+                val sMin = (snoozeEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 180)
+                val label = labelEt.text.toString().trim()
+                val newCfg = cfg.copy(
+                    snoozeMin = sMin,
+                    vibrate = vibrateCb.isChecked,
+                    useSu = suCb.isChecked
+                )
+                onSave(
+                    Action(
+                        Actions.SET_ALARM,
+                        String.format(java.util.Locale.US, "%02d:%02d", hour, minute),
+                        label,
+                        Actions.alarmEncode(newCfg),
+                        existing.cond
+                    )
+                )
+            }
+            .setNegativeButton("CANCEL", null)
+        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
+        d.show()
+    }
+
+    private fun defaultUri(sound: String): android.net.Uri? = try {
+        if (sound.isBlank()) null else android.net.Uri.parse(sound)
+    } catch (e: Exception) {
+        null
     }
 }

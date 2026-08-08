@@ -55,6 +55,7 @@ sealed class Ctx {
             )
             DAY -> DayCtx(
                 dow = ints(o, "dow"),
+                mon = ints(o, "mon"),
                 dom = ints(o, "dom")
             )
             VAR -> VarCtx(
@@ -152,28 +153,32 @@ data class TimeCtx(
     }
 }
 
-/** Day context. `dow` uses Calendar.DAY_OF_WEEK (1=Sun..7=Sat), `dom` is 1..31. */
+/** Day context. `dow` uses Calendar.DAY_OF_WEEK (1=Sun..7=Sat), `mon` is 1..12, `dom` is 1..31. */
 data class DayCtx(
     val dow: List<Int> = emptyList(),
+    val mon: List<Int> = emptyList(),
     val dom: List<Int> = emptyList()
 ) : Ctx() {
     override val type get() = Ctx.DAY
 
     override fun summary(): String {
         val names = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+        val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
         val d = dow.map { names[(it - 1).coerceIn(0, 6)] }.joinToString(",")
-        val m = dom.joinToString(",") { it.toString() }
-        return when {
-            d.isNotEmpty() && m.isNotEmpty() -> "on $d + day $m"
-            d.isNotEmpty() -> "on $d"
-            m.isNotEmpty() -> "on day $m"
-            else -> "every day"
+        val m = mon.map { months[(it - 1).coerceIn(0, 11)] }.joinToString(",")
+        val dOm = dom.joinToString(",") { it.toString() }
+        return buildString {
+            if (d.isNotEmpty()) append("on $d")
+            if (m.isNotEmpty()) append(if (isEmpty()) "on $m" else "  $m")
+            if (dOm.isNotEmpty()) append(if (isEmpty()) "day $dOm" else "  day $dOm")
+            if (isEmpty()) append("every day")
         }
     }
 
     override fun toJson() = JSONObject().apply {
         put("type", type)
         put("dow", JSONArray(dow))
+        put("mon", JSONArray(mon))
         put("dom", JSONArray(dom))
     }
 }
@@ -245,10 +250,12 @@ object ContextGate {
 
     fun dayMatch(dc: DayCtx, cal: Calendar): Boolean {
         val wd = cal.get(Calendar.DAY_OF_WEEK)
+        val mo = cal.get(Calendar.MONTH) + 1
         val dm = cal.get(Calendar.DAY_OF_MONTH)
         val dOk = dc.dow.isEmpty() || wd in dc.dow
-        val mOk = dc.dom.isEmpty() || dm in dc.dom
-        return dOk && mOk
+        val mOk = dc.mon.isEmpty() || mo in dc.mon
+        val dOmOk = dc.dom.isEmpty() || dm in dc.dom
+        return dOk && mOk && dOmOk
     }
 
     private fun varMatch(ctx: Context, vc: VarCtx): Boolean {

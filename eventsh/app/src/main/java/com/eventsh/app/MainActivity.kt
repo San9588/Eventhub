@@ -14,6 +14,8 @@ import android.os.Bundle
 import android.os.Debug
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +25,7 @@ import android.widget.BaseAdapter
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.GridLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
@@ -76,6 +79,13 @@ class MainActivity : Activity() {
     private var suppressSwitch = false
     private val expandedIds = HashSet<String>()
 
+    private val FILE_EVENTS = setOf(
+        "file_modified", "file_opened", "file_closed",
+        "file_deleted", "file_moved", "file_attr"
+    )
+    private val REQ_FILE_PICK = 7002
+    @Volatile private var pendingFilePick: ((String?) -> Unit)? = null
+
     // data
     private var profiles: List<Profile> = emptyList()
     private var tasks: List<Task> = emptyList()
@@ -110,6 +120,7 @@ class MainActivity : Activity() {
     private lateinit var svcSwitchRow: TextView
     private lateinit var autoSwitch: Switch
     private lateinit var rootStatusTv: TextView
+    private lateinit var shizukuStatusTv: TextView
     private lateinit var usageStatusTv: TextView
     private lateinit var notifStatusTv: TextView
 
@@ -134,6 +145,18 @@ class MainActivity : Activity() {
         updateStats()
         EventLog.listener = {
             runOnUiThread { refreshScreen() }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        ActionEditor.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_FILE_PICK) {
+            val cb = pendingFilePick
+            pendingFilePick = null
+            if (cb != null) {
+                cb(if (resultCode == Activity.RESULT_OK) data?.getStringExtra(FilePickerActivity.RESULT_PATH) else null)
+            }
         }
     }
 
@@ -796,6 +819,12 @@ class MainActivity : Activity() {
         })
         rootStatusTv = rootRow.second
         permCard.addView(rootRow.first, matchWrap())
+        val shizukuRow = actionRowContent("Shizuku", "run restricted actions without root (Android 13+)", {
+            com.eventsh.app.engine.ShizukuClient.requestPermission(this)
+            handler.postDelayed({ refreshScreen() }, 900)
+        })
+        shizukuStatusTv = shizukuRow.second
+        permCard.addView(shizukuRow.first, matchWrap())
         val usageRow = actionRowContent("Usage access", "detect foreground app (app triggers)", {
             startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
         })
@@ -921,6 +950,9 @@ class MainActivity : Activity() {
             else -> "OFF"
         }
         rootStatusTv.setTextColor(if (rootOk) C.ok else C.danger)
+        val shiz = com.eventsh.app.engine.ShizukuClient.available
+        shizukuStatusTv.text = if (shiz) "READY" else "TAP"
+        shizukuStatusTv.setTextColor(if (shiz) C.ok else C.warning)
         val usageNeed = Permissions.Need("usage", "Usage access", "", Permissions.Kind.SPECIAL, settingsAction = android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)
         usageStatusTv.text = if (usageNeed.granted(this)) "OK" else "SET"
         usageStatusTv.setTextColor(if (usageNeed.granted(this)) C.ok else C.warning)
@@ -1253,6 +1285,21 @@ class MainActivity : Activity() {
                 paramEt[key] = et
                 paramsBox.addView(et)
             }
+            if (action in FILE_EVENTS) {
+                paramsBox.addView(ctxRow("BROWSE /sdcard ...", C.accent) {
+                    pendingFilePick = { path ->
+                        if (path != null) {
+                            paramEt["path"]?.setText(path)
+                            params["path"] = path
+                        }
+                    }
+                    try {
+                        startActivityForResult(Intent(this@MainActivity, FilePickerActivity::class.java), REQ_FILE_PICK)
+                    } catch (e: Exception) {
+                        EventLog.push("[ui] file picker unavailable: ${e.message}")
+                    }
+                })
+            }
         }
         rebuildParams()
 
@@ -1408,21 +1455,33 @@ class MainActivity : Activity() {
         val dowCbs = names.mapIndexed { i, n ->
             checkBox(n).apply { isChecked = existing?.dow?.contains(i + 1) == true }
         }
+        val monthNames = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        val monCbs = monthNames.mapIndexed { i, n ->
+            checkBox(n).apply { isChecked = existing?.mon?.contains(i + 1) == true }
+        }
         val domEt = editText("days of month (comma: 1,15,28)")
         if (existing != null) domEt.setText(existing.dom.joinToString(","))
+        val dowGrid = GridLayout(this).apply { columnCount = 4 }
+        dowCbs.forEach { dowGrid.addView(it) }
+        val monGrid = GridLayout(this).apply { columnCount = 3 }
+        monCbs.forEach { monGrid.addView(it) }
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            dowCbs.forEach { addView(it) }
+            addView(sectionLabel("DAYS OF WEEK"))
+            addView(dowGrid)
+            addView(sectionLabel("MONTHS"))
+            addView(monGrid)
             addView(domEt)
         }
         val d = AlertDialog.Builder(this)
             .setTitle("DAY CONTEXT")
-            .setMessage("days of week + days of month both apply (AND)")
+            .setMessage("day-of-week, months and days-of-month all apply (AND); leave a group empty for any")
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
                 onSave(
                     DayCtx(
                         dow = dowCbs.mapIndexedNotNull { i, cb -> if (cb.isChecked) i + 1 else null },
+                        mon = monCbs.mapIndexedNotNull { i, cb -> if (cb.isChecked) i + 1 else null },
                         dom = domEt.text.toString().split(",")
                             .mapNotNull { it.trim().toIntOrNull() }
                             .filter { it in 1..31 }
@@ -1583,32 +1642,87 @@ class MainActivity : Activity() {
             .filter { it.isNotBlank() }
             .distinct()
             .filter { it !in EventCatalog.STANDARD }
-        val items = EventCatalog.STANDARD + used + "custom..."
-        AlertDialog.Builder(this)
-            .setTitle("CHOOSE EVENT")
-            .setItems(items.toTypedArray()) { _, which ->
-                val sel = items[which]
-                if (sel == "custom...") {
-                    val input = EditText(this).apply {
-                        hint = "broadcast action string"
-                        setTextColor(C.text)
-                        setHintTextColor(C.hint)
-                        textSize = 18f
-                    }
-                    AlertDialog.Builder(this)
-                        .setTitle("CUSTOM EVENT")
-                        .setMessage("your event name or any broadcast action")
-                        .setView(input)
-                        .setPositiveButton("OK") { _, _ ->
-                            val v = input.text.toString().trim()
-                            if (v.isNotEmpty()) onPick(v)
-                        }
-                        .setNegativeButton("CANCEL", null)
-                        .show()
-                } else {
-                    onPick(sel)
+        val all = EventCatalog.STANDARD + used + "custom..."
+        val filtered = all.toMutableList()
+
+        val lv = ListView(this)
+        val adapter = object : BaseAdapter() {
+            override fun getCount() = filtered.size
+            override fun getItem(pos: Int) = filtered[pos]
+            override fun getItemId(pos: Int) = pos.toLong()
+            override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
+                val label = filtered[pos]
+                val isCustom = label !in EventCatalog.STANDARD
+                return TextView(this@MainActivity).apply {
+                    text = label
+                    textSize = 15f
+                    setTextColor(if (isCustom) C.accent else C.text)
+                    setPadding(dp(14f), dp(12f), dp(14f), dp(12f))
                 }
             }
+        }
+        lv.adapter = adapter
+        lv.setOnItemClickListener { _, _, pos, _ ->
+            val sel = filtered[pos]
+            if (sel == "custom...") {
+                val input = EditText(this).apply {
+                    hint = "broadcast action string"
+                    setTextColor(C.text)
+                    setHintTextColor(C.hint)
+                    textSize = 18f
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("CUSTOM EVENT")
+                    .setMessage("your event name or any broadcast action")
+                    .setView(input)
+                    .setPositiveButton("OK") { _, _ ->
+                        val v = input.text.toString().trim()
+                        if (v.isNotEmpty()) onPick(v)
+                    }
+                    .setNegativeButton("CANCEL", null)
+                    .show()
+            } else {
+                onPick(sel)
+            }
+        }
+
+        val search = EditText(this).apply {
+            hint = "search events..."
+            setHintTextColor(C.hint)
+            setTextColor(C.text)
+            textSize = 16f
+            background = UI.rounded(C.surface, 10f, C.border, 1f)
+            setPadding(dp(10f), dp(9f), dp(10f), dp(9f))
+            addTextChangedListener(object : TextWatcher {
+                override fun afterTextChanged(s: Editable?) {
+                    val q = s?.toString()?.trim()?.lowercase() ?: ""
+                    filtered.clear()
+                    if (q.isEmpty()) {
+                        filtered.addAll(all)
+                    } else {
+                        filtered.addAll(all.filter { it.lowercase().contains(q) })
+                    }
+                    adapter.notifyDataSetChanged()
+                }
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            })
+        }
+
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(dp(14f), dp(10f), dp(14f), dp(4f))
+            })
+            addView(UI.text(this@MainActivity, "custom event action: any broadcast string", 12f, C.hint).apply {
+                setPadding(dp(16f), dp(4f), dp(16f), dp(2f))
+            })
+            addView(lv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("CHOOSE EVENT (${all.size})")
+            .setView(col)
             .setNegativeButton("CANCEL", null)
             .show()
     }

@@ -90,6 +90,8 @@ object Dispatcher {
         val actions = task.actions
         var pc = 0
         val forStack = ArrayDeque<ForFrame>()
+        var steps = 0
+        val maxSteps = actions.size * 1000 + 1000
         stopFlags[task.id] = AtomicBoolean(false)
         while (pc < actions.size) {
             if (stopFlags[task.id]?.get() == true) break
@@ -123,6 +125,21 @@ object Dispatcher {
                         pc = f.start + 1
                     } else {
                         pc++
+                    }
+                }
+                Actions.GOTO -> {
+                    val target = Vars.resolve(a.value, vars).trim().toIntOrNull()
+                    if (target != null && target in 1..actions.size) {
+                        pc = target - 1
+                        forStack.clear()
+                        EventLog.push("[${profile.name}] goto action $target")
+                    } else {
+                        pc++
+                    }
+                    steps++
+                    if (steps > maxSteps) {
+                        EventLog.push("[${profile.name}] goto loop detected - stopping task")
+                        break
                     }
                 }
                 else -> {
@@ -401,16 +418,79 @@ object Dispatcher {
                     }
                 }
 
-                Actions.WIFI_ON -> systemToggle(ctx, profile, "svc wifi enable", "wifi on", attempts)
-                Actions.WIFI_OFF -> systemToggle(ctx, profile, "svc wifi disable", "wifi off", attempts)
-                Actions.BT_ON -> systemToggle(ctx, profile, "svc bluetooth enable", "bluetooth on", attempts)
-                Actions.BT_OFF -> systemToggle(ctx, profile, "svc bluetooth disable", "bluetooth off", attempts)
-                Actions.DATA_ON -> systemToggle(ctx, profile, "svc data enable", "mobile data on", attempts)
-                Actions.DATA_OFF -> systemToggle(ctx, profile, "svc data disable", "mobile data off", attempts)
-                Actions.DISPLAY_ON -> systemToggle(ctx, profile, "input keyevent KEYCODE_WAKEUP", "display on", attempts)
-                Actions.DISPLAY_OFF -> systemToggle(ctx, profile, "input keyevent KEYCODE_POWER", "display off", attempts)
-                Actions.ROTATE_ON -> systemToggle(ctx, profile, "settings put system accelerometer_rotation 1", "auto-rotate on", attempts)
-                Actions.ROTATE_OFF -> systemToggle(ctx, profile, "settings put system accelerometer_rotation 0", "auto-rotate off", attempts)
+                Actions.WIFI_ON -> systemToggle(ctx, profile, a, "Wifi On", attempts)
+                Actions.WIFI_OFF -> systemToggle(ctx, profile, a, "Wifi Off", attempts)
+                Actions.BT_ON -> systemToggle(ctx, profile, a, "Bluetooth On", attempts)
+                Actions.BT_OFF -> systemToggle(ctx, profile, a, "Bluetooth Off", attempts)
+                Actions.DATA_ON -> systemToggle(ctx, profile, a, "Mobile Data On", attempts)
+                Actions.DATA_OFF -> systemToggle(ctx, profile, a, "Mobile Data Off", attempts)
+                Actions.DISPLAY_ON -> systemToggle(ctx, profile, a, "Display On", attempts)
+                Actions.DISPLAY_OFF -> systemToggle(ctx, profile, a, "Display Off", attempts)
+                Actions.ROTATE_ON -> systemToggle(ctx, profile, a, "Auto-Rotate On", attempts)
+                Actions.ROTATE_OFF -> systemToggle(ctx, profile, a, "Auto-Rotate Off", attempts)
+
+                Actions.WAIT -> if (a.value.isNotBlank()) {
+                    val secs = (Vars.resolve(a.value, vars).toIntOrNull() ?: 0).coerceIn(0, 86400)
+                    if (secs > 0) {
+                        EventLog.push("[${profile.name}] waiting ${secs}s")
+                        Thread.sleep(secs * 1000L)
+                    }
+                }
+
+                Actions.WAIT_UNTIL -> {
+                    val cond = Vars.resolve(a.value, vars)
+                    val timeout = (Vars.resolve(a.extra, vars).toIntOrNull() ?: 30).coerceIn(1, 3600)
+                    val start = System.currentTimeMillis()
+                    while (!evalCondition(cond, vars)) {
+                        if (System.currentTimeMillis() - start >= timeout * 1000L) {
+                            EventLog.push("[${profile.name}] wait-until timed out after ${timeout}s")
+                            break
+                        }
+                        Thread.sleep(500)
+                    }
+                    if (evalCondition(cond, vars)) EventLog.push("[${profile.name}] wait-until condition met")
+                }
+
+                Actions.SET_ALARM -> {
+                    val cfg = Actions.alarmCfg(a.extra2)
+                    val hm = Vars.resolve(a.value, vars)
+                    val label = Vars.resolve(a.extra, vars)
+                    val parts = hm.split(":")
+                    val hour = parts.getOrNull(0)?.toIntOrNull() ?: 7
+                    val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                    if (cfg.useSu) {
+                        AlarmEngine.setAlarmSu(ctx, label, hour, minute, cfg.vibrate)
+                    } else {
+                        Thread { AlarmEngine.setAlarm(ctx, label, hour, minute, cfg) }.start()
+                    }
+                }
+
+                Actions.CANCEL_ALARM -> {
+                    val label = Vars.resolve(a.value, vars)
+                    if (a.extra2 == "su") {
+                        AlarmEngine.cancelAlarmSu(ctx)
+                    } else {
+                        Thread { AlarmEngine.cancel(ctx, label) }.start()
+                    }
+                }
+
+                Actions.ALARM_VOLUME -> {
+                    val vol = (Vars.resolve(a.value, vars).toIntOrNull() ?: 0).coerceIn(0, 15)
+                    if (a.extra2 == "su") {
+                        Thread {
+                            val out = RootBridge.execute("settings put system alarm_volume $vol")
+                            EventLog.push("[${profile.name}] alarm volume su -> ${out?.trim()?.take(60) ?: "ok"}")
+                        }.start()
+                    } else {
+                        try {
+                            val am = ctx.getSystemService(android.media.AudioManager::class.java)
+                            am.setStreamVolume(android.media.AudioManager.STREAM_ALARM, vol, 0)
+                            EventLog.push("[${profile.name}] alarm volume set to $vol")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "alarm volume failed", e)
+                        }
+                    }
+                }
 
                 Actions.STOP -> {
                     stopFlags[task.id]?.set(true)
@@ -509,24 +589,64 @@ object Dispatcher {
     }
 
     /**
-     * Runs a shell-level system toggle (root preferred; `svc`/`input`/`settings`
-     * need su or a privileged shell). Runs on a worker thread like the root action.
+     * Runs a system toggle (wifi / bluetooth / data / display / rotate).
+     * Uses the public API when it still works (Android 12 and below for wifi /
+     * bluetooth), otherwise runs through su (when the action's "Run with su"
+     * option is on) or Shizuku. When neither is available a notification is
+     * posted telling the user the action needs Shizuku on Android 13+.
      */
     private fun systemToggle(
-        ctx: Context, profile: Profile, cmd: String, label: String, attempts: Int
+        ctx: Context, profile: Profile, a: Action, label: String, attempts: Int
     ) {
         Thread {
             retry(attempts, label, profile.name) {
                 try {
-                    val out = RootBridge.execute(cmd)
-                    EventLog.push("[${profile.name}] $label -> ${out?.trim()?.take(80) ?: "ok"}")
-                    out == null || !out.startsWith("exit=")
+                    val useSu = a.extra2 == "su"
+                    val cmd = Actions.suShell(a.type)
+                    when (Privilege.runPrivileged(ctx, a.type, label, cmd, useSu)) {
+                        Privilege.PrivResult.DONE -> true
+                        Privilege.PrivResult.FAILED -> true // notified; do not retry
+                        Privilege.PrivResult.DIRECT -> {
+                            val ok = directToggle(ctx, a.type)
+                            EventLog.push("[${profile.name}] $label (api) -> ${if (ok) "ok" else "failed"}")
+                            ok
+                        }
+                    }
                 } catch (e: Exception) {
                     Log.w(TAG, "$label failed", e)
                     false
                 }
             }
         }.start()
+    }
+
+    /**
+     * Runs a toggle through the normal Android API. Only used on versions
+     * where the API still works (wifi below Android 10, bluetooth below 13).
+     */
+    private fun directToggle(ctx: Context, type: String): Boolean = try {
+        when (type) {
+            Actions.WIFI_ON -> {
+                val w = ctx.getSystemService(android.net.wifi.WifiManager::class.java)
+                w.isWifiEnabled || w.setWifiEnabled(true)
+            }
+            Actions.WIFI_OFF -> {
+                val w = ctx.getSystemService(android.net.wifi.WifiManager::class.java)
+                !w.isWifiEnabled || w.setWifiEnabled(false)
+            }
+            Actions.BT_ON -> {
+                val bt = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                bt != null && (bt.isEnabled || bt.enable())
+            }
+            Actions.BT_OFF -> {
+                val bt = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                bt != null && (!bt.isEnabled || bt.disable())
+            }
+            else -> false
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "direct toggle failed", e)
+        false
     }
 
     /**

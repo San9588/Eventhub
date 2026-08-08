@@ -36,10 +36,16 @@ object EventHub {
     )
 
     private fun syncCustomActions(ctx: Context) {
+        // watcher-driven (file/music) + synthetic (var/app/timer) events are not broadcasts
+        val watcherOnly = setOf(
+            "file_modified", "file_opened", "file_closed",
+            "file_deleted", "file_moved", "file_attr", "music_track"
+        )
         val custom = Store.cachedProfiles(ctx)
             .flatMap { it.eventActions }
             .filter { it.isNotBlank() }
             .filterNot { standard.contains(it) }
+            .filterNot { it in watcherOnly }
             .toSet()
         synchronized(this) {
             try { ctx.unregisterReceiver(receiver) } catch (e: Exception) {}

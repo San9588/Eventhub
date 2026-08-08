@@ -2,6 +2,7 @@ package com.eventsh.app
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -49,6 +50,11 @@ class TaskActivity : Activity() {
         root.addView(buildBody(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(buildBottomBar())
         setContentView(root)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        ActionEditor.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun buildTopBar(): View {

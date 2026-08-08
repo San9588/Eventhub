@@ -34,6 +34,18 @@ data class Action(
         Actions.END_IF -> "End If"
         Actions.FOR -> "For %${extra.ifBlank { "loop" }} in ${value.ifBlank { "(values)" }}"
         Actions.END_FOR -> "End For"
+        Actions.WAIT -> "Wait ${value.ifBlank { "(seconds)" }}s"
+        Actions.WAIT_UNTIL -> "Wait until ${value.ifBlank { "(condition)" }}" +
+            (if (extra.isBlank()) "" else "  (timeout ${extra}s)")
+        Actions.GOTO -> "Goto action ${value.ifBlank { "?" }}"
+        Actions.SET_ALARM -> {
+            val cfg = Actions.alarmCfg(extra2)
+            "Alarm ${value.ifBlank { "--:--" }}  ${extra.ifBlank { "(no label)" }}" +
+                (if (cfg.snoozeMin > 0) "  snooze ${cfg.snoozeMin}m" else "") +
+                (if (cfg.useSu) "  [su]" else "")
+        }
+        Actions.CANCEL_ALARM -> "Cancel alarm ${value.ifBlank { "(all)" }}" + (if (extra2 == "su") "  [su]" else "")
+        Actions.ALARM_VOLUME -> "Alarm volume ${value.ifBlank { "?" }}" + (if (extra2 == "su") "  [su]" else "")
         Actions.WIFI_ON -> "Wifi On"
         Actions.WIFI_OFF -> "Wifi Off"
         Actions.BT_ON -> "Bluetooth On"
@@ -195,6 +207,14 @@ object Actions {
     const val FOR = "for"
     const val END_FOR = "end_for"
 
+    const val WAIT = "wait"
+    const val WAIT_UNTIL = "wait_until"
+    const val GOTO = "goto"
+
+    const val SET_ALARM = "set_alarm"
+    const val CANCEL_ALARM = "cancel_alarm"
+    const val ALARM_VOLUME = "alarm_volume"
+
     const val WIFI_ON = "wifi_on"
     const val WIFI_OFF = "wifi_off"
     const val BT_ON = "bt_on"
@@ -232,6 +252,12 @@ object Actions {
         Def(END_IF, "End If", "FLOW"),
         Def(FOR, "For", "FLOW"),
         Def(END_FOR, "End For", "FLOW"),
+        Def(WAIT, "Wait", "FLOW"),
+        Def(WAIT_UNTIL, "Wait Until", "FLOW"),
+        Def(GOTO, "Goto", "FLOW"),
+        Def(SET_ALARM, "Set Alarm", "SYSTEM"),
+        Def(CANCEL_ALARM, "Cancel Alarm", "SYSTEM"),
+        Def(ALARM_VOLUME, "Alarm Volume", "SYSTEM"),
         Def(WIFI_ON, "Wifi On", "SYSTEM"),
         Def(WIFI_OFF, "Wifi Off", "SYSTEM"),
         Def(BT_ON, "Bluetooth On", "SYSTEM"),
@@ -269,4 +295,77 @@ object Actions {
     /** Control-flow markers that cannot carry a meaningful per-action If guard. */
     fun isFlow(type: String): Boolean =
         type == IF || type == ELSE || type == END_IF || type == FOR || type == END_FOR
+
+    // ------------------------------------------------------------- privilege
+    /**
+     * Actions whose standard Android API is restricted on newer Android
+     * versions (or does not exist at all). These expose a "Run with su"
+     * option and fall back to a Shizuku / privileged-shell notification.
+     */
+    fun needsPrivilege(type: String): Boolean = when (type) {
+        WIFI_ON, WIFI_OFF, BT_ON, BT_OFF, DATA_ON, DATA_OFF,
+        DISPLAY_ON, DISPLAY_OFF, ROTATE_ON, ROTATE_OFF,
+        SET_ALARM, CANCEL_ALARM, ALARM_VOLUME -> true
+        else -> false
+    }
+
+    /**
+     * The SDK level from which the *standard* API for this toggle stops
+     * working. `null` means there is no public API on any version.
+     *  - Wifi toggle: deprecated / no-op from Android 10 (API 29).
+     *  - Bluetooth enable/disable: throws from Android 13 (API 33).
+     *  - Data / Display / Rotate: shell-only, no public API.
+     */
+    fun sdkLimit(type: String): Int? = when (type) {
+        WIFI_ON, WIFI_OFF -> 29
+        BT_ON, BT_OFF -> 33
+        else -> null
+    }
+
+    /** Shell command that performs [type] when running privileged (su/Shizuku). */
+    fun suShell(type: String): String = when (type) {
+        WIFI_ON -> "svc wifi enable"
+        WIFI_OFF -> "svc wifi disable"
+        BT_ON -> "svc bluetooth enable"
+        BT_OFF -> "svc bluetooth disable"
+        DATA_ON -> "svc data enable"
+        DATA_OFF -> "svc data disable"
+        DISPLAY_ON -> "input keyevent KEYCODE_WAKEUP"
+        DISPLAY_OFF -> "input keyevent KEYCODE_POWER"
+        ROTATE_ON -> "settings put system accelerometer_rotation 1"
+        ROTATE_OFF -> "settings put system accelerometer_rotation 0"
+        ALARM_VOLUME -> "settings put system alarm_volume %VOLUME%"
+        else -> ""
+    }
+
+    // ------------------------------------------------------------- alarms
+    /** Parsed configuration of a "Set Alarm" action, packed into [Action.extra2]. */
+    data class AlarmCfg(
+        val snoozeMin: Int = 5,
+        val vibrate: Boolean = true,
+        val sound: String = "",
+        val useSu: Boolean = false
+    )
+
+    fun alarmCfg(s: String): AlarmCfg {
+        var cfg = AlarmCfg()
+        for (raw in s.split(",")) {
+            val kv = raw.split("=", limit = 2)
+            if (kv.size != 2) continue
+            when (kv[0].trim()) {
+                "snooze" -> cfg = cfg.copy(snoozeMin = kv[1].trim().toIntOrNull() ?: cfg.snoozeMin)
+                "vibrate" -> cfg = cfg.copy(vibrate = kv[1].trim().toIntOrNull() == 1)
+                "sound" -> cfg = cfg.copy(sound = kv[1].trim())
+                "su" -> cfg = cfg.copy(useSu = kv[1].trim().toIntOrNull() == 1)
+            }
+        }
+        return cfg
+    }
+
+    fun alarmEncode(cfg: AlarmCfg): String = listOf(
+        "snooze=${cfg.snoozeMin}",
+        "vibrate=${if (cfg.vibrate) 1 else 0}",
+        "sound=${cfg.sound}",
+        "su=${if (cfg.useSu) 1 else 0}"
+    ).joinToString(",")
 }

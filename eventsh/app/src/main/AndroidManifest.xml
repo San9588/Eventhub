@@ -13,8 +13,13 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+    <!-- requested at runtime by Shizuku; merged automatically -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <!-- declared BY Termux; caller must request it to use com.termux.RUN_COMMAND -->
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
@@ -46,6 +51,16 @@
             android:name=".TaskActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".FilePickerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.Eventsh" />
+
+        <receiver
+            android:name=".receiver.AlarmFireReceiver"
+            android:exported="false" />
 
         <service
             android:name=".service.EventService"

@@ -45,4 +45,5 @@ android {
 
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+    implementation("dev.rikka.shizuku:api:13.1.5")
 }
