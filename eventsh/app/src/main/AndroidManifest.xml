@@ -23,6 +23,15 @@
     <!-- declared BY Termux; caller must request it to use com.termux.RUN_COMMAND -->
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
+    <!-- required by Shizuku so the app can receive the privileged binder -->
+    <provider
+        android:name="rikka.shizuku.ShizukuProvider"
+        android:authorities="${applicationId}.shizuku"
+        android:enabled="true"
+        android:exported="true"
+        android:multiprocess="false"
+        android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
     <!-- see all installed apps (app picker) -->
     <queries>
         <intent>

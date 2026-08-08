@@ -149,6 +149,8 @@ object AlarmEngine {
             append(" --ei android.intent.extra.alarm.HOUR $hour")
             append(" --ei android.intent.extra.alarm.MINUTES $minute")
             append(" --ez android.intent.extra.alarm.VIBRATE ${if (vibrate) "true" else "false"}")
+            // SKIP_UI sets the alarm directly without opening the clock app UI
+            append(" --ez android.intent.extra.alarm.SKIP_UI true")
             if (label.isNotBlank()) append(" --es android.intent.extra.alarm.MESSAGE \"${label.replace("\"", "")}\"")
         }
         Thread {

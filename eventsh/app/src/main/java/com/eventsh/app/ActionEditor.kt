@@ -452,7 +452,7 @@ object ActionEditor {
             setText(if (cfg.snoozeMin > 0) cfg.snoozeMin.toString() else "0")
         }
         val vibrateCb = checkBox(a, "vibration on").apply { isChecked = cfg.vibrate }
-        val suCb = checkBox(a, "Run with su (opens system clock app)").apply { isChecked = cfg.useSu }
+        val suCb = checkBox(a, "Run with su").apply { isChecked = cfg.useSu }
 
         lateinit var timeTv: TextView
         timeTv = TextView(a).apply {

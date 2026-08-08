@@ -114,7 +114,7 @@ class TaskActivity : Activity() {
         ll.addView(ActionEditor.sectionLabel(this, "FAILURE"))
         ll.addView(rtEt)
 
-        ll.addView(ActionEditor.sectionLabel(this, "ACTIONS (run in order, tap to edit)"))
+        ll.addView(ActionEditor.sectionLabel(this, "ACTIONS (tap row = edit; ⇈▲▼⇊ move; ⇅ jump to position)"))
         actBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         refreshActs()
         ll.addView(actBox)
@@ -143,13 +143,14 @@ class TaskActivity : Activity() {
                 val condLine = a.condTerms()?.let { (t, j) -> CondSpec.summary(t, j) }
                 val text = "${a.label()}  ${a.summary()}" +
                     (if (condLine.isNullOrBlank()) "" else "   [IF $condLine]")
-                actBox.addView(ActionEditor.ctxRow(this, text, C.text) {
+                val row = ActionEditor.ctxRow(this, text, C.text) {
                     ActionEditor.actionDialog(
                         this, a,
                         onSave = { na -> actions[idx] = na; refreshActs() },
                         onRemove = { actions.removeAt(idx); refreshActs() }
                     )
-                })
+                }
+                actBox.addView(reorderRow(row, idx))
             }
         }
         actBox.addView(ActionEditor.ctxRow(this, "+ ADD ACTION", C.accent) {
@@ -160,6 +161,76 @@ class TaskActivity : Activity() {
                 )
             }
         })
+    }
+
+    /**
+     * Wraps an action row with reorder controls:
+     *  - ⇈ / ⇊ jump to the very first / last position
+     *  - ▲ / ▼ nudge up / down one step
+     *  - ⇅ opens a "move to position" picker for long jumps
+     */
+    private fun reorderRow(row: View, index: Int): View {
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(2f), 0, dp(2f))
+        }
+        val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        wrap.addView(row, lp)
+        wrap.addView(reorderBtn("⇈", index, 0))
+        wrap.addView(reorderBtn("▲", index, index - 1))
+        wrap.addView(reorderBtn("▼", index, index + 1))
+        wrap.addView(reorderBtn("⇊", index, actions.lastIndex))
+        wrap.addView(moveBtn(index))
+        return wrap
+    }
+
+    private fun reorderBtn(symbol: String, from: Int, to: Int): TextView =
+        TextView(this).apply {
+            text = symbol
+            textSize = 13f
+            setTextColor(C.accent)
+            gravity = Gravity.CENTER
+            setPadding(dp(4f), dp(8f), dp(4f), dp(8f))
+            isClickable = true
+            setOnClickListener {
+                if (to in actions.indices) {
+                    val moved = actions.removeAt(from)
+                    actions.add(to, moved)
+                    refreshActs()
+                }
+            }
+        }
+
+    /** Opens a picker showing every action numbered; tapping a target moves there. */
+    private fun moveBtn(index: Int): TextView =
+        TextView(this).apply {
+            text = "⇅"
+            textSize = 13f
+            setTextColor(C.warning)
+            gravity = Gravity.CENTER
+            setPadding(dp(4f), dp(8f), dp(4f), dp(8f))
+            isClickable = true
+            setOnClickListener { moveDialog(index) }
+        }
+
+    private fun moveDialog(current: Int) {
+        val labels = actions.mapIndexed { i, a -> "${i + 1}. ${a.label()}  ${a.summary()}" }.toTypedArray()
+        val d = AlertDialog.Builder(this)
+            .setTitle("MOVE ACTION TO")
+            .setSingleChoiceItems(labels, current) { _, which ->
+                moveTo(current, which)
+                d.dismiss()
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    private fun moveTo(from: Int, to: Int) {
+        if (from == to || to !in actions.indices) return
+        val moved = actions.removeAt(from)
+        actions.add(to, moved)
+        refreshActs()
     }
 
     private fun buildBottomBar(): View {

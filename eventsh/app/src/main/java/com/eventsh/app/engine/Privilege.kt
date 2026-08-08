@@ -53,7 +53,7 @@ object Privilege {
                     runShizuku(ctx, label, cmd)
                 } else {
                     notifyNeeds(ctx, label)
-                    EventLog.push("[$label] skipped - needs Shizuku (or 'Run with su') on Android ${limit?.let { "$it+" } ?: "all"}")
+                    EventLog.push("[$label] skipped - needs Shizuku (or 'Run with su') on Android 13+")
                     PrivResult.FAILED
                 }
             } else {
@@ -84,11 +84,11 @@ object Privilege {
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                 .setContentTitle("Action needs Shizuku")
                 .setContentText(
-                    "'$label' can't run with the standard API on this Android version. " +
+                    "'$label' can't run with the standard API on Android 13+. " +
                         "Enable 'Run with su' in the action, or grant Shizuku access."
                 )
                 .setStyle(android.app.Notification.BigTextStyle().bigText(
-                    "'$label' can't run with the standard API on this Android version. " +
+                    "'$label' can't run with the standard API on Android 13+. " +
                         "Edit the action and enable 'Run with su', or grant this app Shizuku access " +
                         "(settings > Shizuku) so the command can run through the Shizuku server."
                 ))

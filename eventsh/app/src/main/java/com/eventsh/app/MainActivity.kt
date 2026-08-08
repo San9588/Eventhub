@@ -71,6 +71,7 @@ class MainActivity : Activity() {
     private val TAB_SETTINGS = 4
 
     private val handler = Handler(Looper.getMainLooper())
+    private val refreshRunnable = Runnable { refreshScreen() }
     private var cpuRef = 0L
     private var permDialog: AlertDialog? = null
     private val permRows = mutableListOf<Pair<Permissions.Need, TextView>>()
@@ -144,7 +145,9 @@ class MainActivity : Activity() {
         refreshScreen()
         updateStats()
         EventLog.listener = {
-            runOnUiThread { refreshScreen() }
+            // coalesce bursts of log pushes into a single UI refresh
+            handler.removeCallbacks(refreshRunnable)
+            handler.postDelayed(refreshRunnable, 150)
         }
     }
 
@@ -1662,6 +1665,7 @@ class MainActivity : Activity() {
             }
         }
         lv.adapter = adapter
+        var pickerDialog: AlertDialog? = null
         lv.setOnItemClickListener { _, _, pos, _ ->
             val sel = filtered[pos]
             if (sel == "custom...") {
@@ -1677,11 +1681,15 @@ class MainActivity : Activity() {
                     .setView(input)
                     .setPositiveButton("OK") { _, _ ->
                         val v = input.text.toString().trim()
-                        if (v.isNotEmpty()) onPick(v)
+                        if (v.isNotEmpty()) {
+                            pickerDialog?.dismiss()
+                            onPick(v)
+                        }
                     }
                     .setNegativeButton("CANCEL", null)
                     .show()
             } else {
+                pickerDialog?.dismiss()
                 onPick(sel)
             }
         }
@@ -1720,7 +1728,7 @@ class MainActivity : Activity() {
             addView(lv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }
 
-        AlertDialog.Builder(this)
+        pickerDialog = AlertDialog.Builder(this)
             .setTitle("CHOOSE EVENT (${all.size})")
             .setView(col)
             .setNegativeButton("CANCEL", null)
