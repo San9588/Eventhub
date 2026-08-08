@@ -7,10 +7,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.DragEvent
-import android.view.DragShadowBuilder
 import android.view.Gravity
 import android.view.View
+import android.view.View.DragShadowBuilder
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -242,11 +241,11 @@ class TaskActivity : Activity() {
     private fun setupDragListener() {
         actBox.setOnDragListener { _, e ->
             when (e.action) {
-                DragEvent.ACTION_DRAG_STARTED -> {
+                DRAG_STARTED -> {
                     dragIndex = (e.localState as? Int) ?: -1
                     true
                 }
-                DragEvent.ACTION_DRAG_LOCATION -> {
+                DRAG_LOCATION -> {
                     lastDragY = e.y
                     if (!dragActive) {
                         dragActive = true
@@ -261,8 +260,8 @@ class TaskActivity : Activity() {
                     }
                     true
                 }
-                DragEvent.ACTION_DRAG_DROP -> true
-                DragEvent.ACTION_DRAG_ENDED -> {
+                DRAG_DROP -> true
+                DRAG_ENDED -> {
                     dragActive = false
                     dragHandler.removeCallbacks(dragScroll)
                     dragIndex = -1
@@ -364,3 +363,9 @@ class TaskActivity : Activity() {
 
     private fun dp(v: Float): Int = ActionEditor.dp(this, v)
 }
+
+// DragEvent action codes (referenced as plain ints to avoid SDK symbol drift).
+private const val DRAG_STARTED = 1
+private const val DRAG_LOCATION = 2
+private const val DRAG_DROP = 3
+private const val DRAG_ENDED = 4
