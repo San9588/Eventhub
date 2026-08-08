@@ -29,6 +29,8 @@ import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
+import com.eventsh.app.engine.Action
+import com.eventsh.app.engine.Actions
 import com.eventsh.app.engine.AppCtx
 import com.eventsh.app.engine.Ctx
 import com.eventsh.app.engine.DayCtx
@@ -38,11 +40,12 @@ import com.eventsh.app.engine.EventCatalog
 import com.eventsh.app.engine.EventHub
 import com.eventsh.app.engine.EventLog
 import com.eventsh.app.engine.Permissions
+import com.eventsh.app.engine.Profile
 import com.eventsh.app.engine.RootBridge
-import com.eventsh.app.engine.Rule
-import com.eventsh.app.engine.RuleStore
 import com.eventsh.app.engine.Scheduler
+import com.eventsh.app.engine.Store
 import com.eventsh.app.engine.SysStats
+import com.eventsh.app.engine.Task
 import com.eventsh.app.engine.TimeCtx
 import com.eventsh.app.engine.UserVars
 import com.eventsh.app.engine.VarCtx
@@ -73,7 +76,8 @@ class MainActivity : Activity() {
     private val expandedIds = HashSet<String>()
 
     // data
-    private var rules: List<Rule> = emptyList()
+    private var profiles: List<Profile> = emptyList()
+    private var tasks: List<Task> = emptyList()
     private var logs: List<String> = emptyList()
     private var running = false
     private var rootOk = false
@@ -123,7 +127,7 @@ class MainActivity : Activity() {
         }
         UserVars.init(this)
         buildUi()
-        if (RuleStore.autostart(this) && !isServiceRunning()) startServiceCompat()
+        if (Store.autostart(this) && !isServiceRunning()) startServiceCompat()
         RootBridge.checkAsync()
         refreshScreen()
         updateStats()
@@ -332,7 +336,7 @@ class MainActivity : Activity() {
         varList.adapter = varAdapter
         logList.adapter = logAdapter
         profileList.setOnItemClickListener { _, _, pos, _ -> toggleExpand(pos) }
-        taskList.setOnItemClickListener { _, _, pos, _ -> if (pos in rules.indices) ruleDialog(rules[pos]) }
+        taskList.setOnItemClickListener { _, _, pos, _ -> if (pos in tasks.indices) taskDialog(tasks[pos]) }
         varList.setOnItemClickListener { _, _, pos, _ -> if (pos in userVars.indices) varDialog(userVars[pos]) }
 
         contentFrame.addView(profileList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -386,15 +390,16 @@ class MainActivity : Activity() {
     }
 
     private fun refreshEmptyViews() {
-        profileEmpty.visibility = if (currentTab == TAB_PROFILES && rules.isEmpty()) View.VISIBLE else View.GONE
-        taskEmpty.visibility = if (currentTab == TAB_TASKS && rules.isEmpty()) View.VISIBLE else View.GONE
+        profileEmpty.visibility = if (currentTab == TAB_PROFILES && profiles.isEmpty()) View.VISIBLE else View.GONE
+        taskEmpty.visibility = if (currentTab == TAB_TASKS && tasks.isEmpty()) View.VISIBLE else View.GONE
         varEmpty.visibility = if (currentTab == TAB_VARS && userVars.isEmpty()) View.VISIBLE else View.GONE
         logEmpty.visibility = if (currentTab == TAB_LOG && logs.isEmpty()) View.VISIBLE else View.GONE
     }
 
     private fun onFabAdd() {
         when (currentTab) {
-            TAB_PROFILES, TAB_TASKS -> ruleDialog(null)
+            TAB_PROFILES -> profileDialog(null)
+            TAB_TASKS -> taskDialog(null)
             TAB_VARS -> varDialog(null)
         }
     }
@@ -418,13 +423,17 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun actionLines(r: Rule): List<Pair<Int, String>> {
+    private fun taskActionLines(task: Task): List<Pair<Int, String>> {
         val out = ArrayList<Pair<Int, String>>()
-        if (r.taskName.isNotBlank()) out += R.drawable.ic_terminal to "Script  ${r.taskName}"
-        if (r.shellCmd.isNotBlank()) out += R.drawable.ic_terminal to "Shell   ${r.shellCmd}"
-        if (r.sendAction.isNotBlank()) out += R.drawable.ic_send to "Intent  ${r.sendAction}"
-        if (r.rootCmd.isNotBlank()) out += R.drawable.ic_terminal to "Root    ${r.rootCmd}"
-        if (r.notify) out += R.drawable.ic_notify to "Notify  ${r.notifyText.ifBlank { "on fire" }}"
+        for (a in task.actions) {
+            val icon = when (a.type) {
+                Actions.SCRIPT, Actions.SHELL, Actions.ROOT -> R.drawable.ic_terminal
+                Actions.INTENT -> R.drawable.ic_send
+                Actions.NOTIFY -> R.drawable.ic_notify
+                else -> R.drawable.ic_list
+            }
+            out += icon to "${a.label()}  ${a.summary()}"
+        }
         return out
     }
 
@@ -467,15 +476,16 @@ class MainActivity : Activity() {
     }
 
     inner class ProfileAdapter : BaseAdapter() {
-        override fun getCount() = rules.size
-        override fun getItem(pos: Int) = rules[pos]
+        override fun getCount() = profiles.size
+        override fun getItem(pos: Int) = profiles[pos]
         override fun getItemId(pos: Int) = pos.toLong()
 
         override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
-            val r = rules[pos]
-            val enabled = r.enabled
+            val p = profiles[pos]
+            val enabled = p.enabled
             val titleColor = if (enabled) C.text else C.textSec
             val accent = if (enabled) C.primary else C.disabled
+            val task = tasks.find { it.id == p.taskId }
 
             val card = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -483,7 +493,7 @@ class MainActivity : Activity() {
                 background = UI.rounded(C.card, 14f, C.border, 1f)
             }
 
-            // header: icon + label + switch
+            // header: icon + name + switch
             val header = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -494,7 +504,7 @@ class MainActivity : Activity() {
             }
             header.addView(icon, LinearLayout.LayoutParams(dp(24f), dp(24f)))
             header.addView(
-                UI.text(this@MainActivity, r.label, 16f, titleColor, bold = true).apply {
+                UI.text(this@MainActivity, p.name, 16f, titleColor, bold = true).apply {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 },
@@ -504,15 +514,17 @@ class MainActivity : Activity() {
             )
             val sw = Switch(this@MainActivity)
             sw.isChecked = enabled
-            sw.setOnCheckedChangeListener { _, _ -> toggleRule(r) }
+            sw.setOnCheckedChangeListener { _, _ -> toggleProfile(p) }
             header.addView(sw)
             card.addView(header)
 
-            // subtitle: trigger + task summary
-            val sub = r.contextLine().ifBlank { "no trigger set" }
-            val taskTxt = if (r.taskName.isNotBlank()) "-> ${r.taskName}" else ""
+            // subtitle: context summary + linked task name
+            val sub = p.contextLine().ifBlank {
+                if (p.isDailyTimer) "daily ${p.daily}" else if (p.isOneShotTimer) "one-shot timer" else "no trigger set"
+            }
+            val taskTxt = task?.name ?: if (p.taskId.isBlank()) "" else "(unlinked task)"
             card.addView(
-                UI.text(this@MainActivity, sub + (if (taskTxt.isNotBlank()) "   $taskTxt" else ""), 13f, C.textSec).apply {
+                UI.text(this@MainActivity, sub + (if (taskTxt.isNotBlank()) "   -> $taskTxt" else ""), 13f, C.textSec).apply {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 },
@@ -521,42 +533,60 @@ class MainActivity : Activity() {
                 }
             )
 
-            if (r.id in expandedIds) {
-                // contexts
-                val ctxHeader = UI.text(this@MainActivity, "TRIGGERS", 11f, C.accent, bold = true).apply {
-                    letterSpacing = 0.08f
-                }
-                card.addView(ctxHeader, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(10f)
-                })
-                val ctxWrap = LinearLayout(this@MainActivity).apply {
+            if (p.id in expandedIds) {
+                // left = triggers | right = linked task
+                val twoCol = LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                 }
-                if (r.contexts.isEmpty()) {
-                    ctxWrap.addView(UI.text(this@MainActivity, "no contexts", 13f, C.hint))
+                val colL = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                val colR = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                colL.addView(UI.text(this@MainActivity, "TRIGGERS", 11f, C.accent, bold = true).apply { letterSpacing = 0.08f })
+                if (p.contexts.isEmpty()) {
+                    colL.addView(UI.text(this@MainActivity, "none", 13f, C.hint).apply {
+                        setPadding(0, dp(4f), 0, 0)
+                    })
                 } else {
-                    var added = 0
-                    for (c in r.contexts) {
-                        ctxWrap.addView(buildCtxChip(c), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                            marginStart = if (added == 0) 0 else dp(6f)
+                    for (c in p.contexts) {
+                        colL.addView(buildCtxChip(c), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                             topMargin = dp(4f)
                         })
-                        added++
                     }
                 }
-                card.addView(ctxWrap, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-                // actions
-                val actHeader = UI.text(this@MainActivity, "ACTIONS", 11f, C.accent, bold = true).apply {
-                    letterSpacing = 0.08f
+                colR.addView(UI.text(this@MainActivity, "TASK", 11f, C.accent, bold = true).apply { letterSpacing = 0.08f })
+                colR.addView(
+                    UI.text(this@MainActivity, task?.name ?: "(no task linked)", 14f, if (task != null) C.primary else C.hint, bold = task != null).apply {
+                        setPadding(0, dp(4f), 0, 0)
+                    }
+                )
+                if (task != null) {
+                    colR.addView(
+                        UI.text(this@MainActivity, "${task.actions.size} action(s)", 12f, C.hint),
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = dp(2f)
+                        }
+                    )
                 }
-                card.addView(actHeader, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                twoCol.addView(colL, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                twoCol.addView(colR, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(12f)
+                })
+                card.addView(twoCol, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(10f)
                 })
-                val acts = actionLines(r)
-                if (acts.isEmpty()) {
-                    card.addView(UI.text(this@MainActivity, "no actions", 13f, C.hint))
-                } else {
+
+                // linked task actions
+                val acts = task?.let { taskActionLines(it) } ?: emptyList()
+                if (acts.isNotEmpty()) {
+                    val actHeader = UI.text(this@MainActivity, "ACTIONS", 11f, C.accent, bold = true).apply {
+                        letterSpacing = 0.08f
+                    }
+                    card.addView(actHeader, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(10f)
+                    })
                     for ((ic, txt) in acts) card.addView(actionRow(ic, txt, C.primary))
                 }
 
@@ -565,11 +595,11 @@ class MainActivity : Activity() {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.END
                 }
-                btnRow.addView(materialButton("TEST", C.accent, { testRule(r) }))
-                btnRow.addView(materialButton("EDIT", C.primary, { ruleDialog(r) }), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                btnRow.addView(materialButton("TEST", C.accent, { testProfile(p) }))
+                btnRow.addView(materialButton("EDIT", C.primary, { profileDialog(p) }), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     marginStart = dp(8f)
                 })
-                btnRow.addView(materialButton("DELETE", C.danger, { deleteRule(r) }), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                btnRow.addView(materialButton("DELETE", C.danger, { deleteProfile(p) }), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     marginStart = dp(8f)
                 })
                 card.addView(btnRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -577,7 +607,7 @@ class MainActivity : Activity() {
                 })
             }
 
-            card.setOnClickListener { toggleExpand(r.id) }
+            card.setOnClickListener { toggleExpand(p.id) }
             return cardWrap(card)
         }
     }
@@ -599,18 +629,17 @@ class MainActivity : Activity() {
     }
 
     private fun toggleExpand(pos: Int) {
-        if (pos in rules.indices) toggleExpand(rules[pos].id)
+        if (pos in profiles.indices) toggleExpand(profiles[pos].id)
     }
 
     inner class TaskAdapter : BaseAdapter() {
-        override fun getCount() = rules.size
-        override fun getItem(pos: Int) = rules[pos]
+        override fun getCount() = tasks.size
+        override fun getItem(pos: Int) = tasks[pos]
         override fun getItemId(pos: Int) = pos.toLong()
 
         override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
-            val r = rules[pos]
-            val enabled = r.enabled
-            val accent = if (enabled) C.primary else C.disabled
+            val t = tasks[pos]
+            val usedBy = profiles.count { it.taskId == t.id }
 
             val card = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -623,11 +652,11 @@ class MainActivity : Activity() {
             }
             val icon = ImageView(this@MainActivity).apply {
                 setImageResource(R.drawable.ic_list)
-                setColorFilter(accent)
+                setColorFilter(C.primary)
             }
             header.addView(icon, LinearLayout.LayoutParams(dp(24f), dp(24f)))
             header.addView(
-                UI.text(this@MainActivity, r.label, 16f, if (enabled) C.text else C.textSec, bold = true).apply {
+                UI.text(this@MainActivity, t.name, 16f, C.text, bold = true).apply {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 },
@@ -635,12 +664,12 @@ class MainActivity : Activity() {
                     marginStart = dp(10f)
                 }
             )
-            header.addView(iconButton(R.drawable.ic_edit, C.textSec, { ruleDialog(r) }))
+            header.addView(iconButton(R.drawable.ic_edit, C.textSec, { taskDialog(t) }))
             card.addView(header)
 
-            val acts = actionLines(r)
+            val acts = taskActionLines(t)
             card.addView(
-                UI.text(this@MainActivity, "${acts.size} action(s)  ·  cd ${r.cooldownSec}s  ·  retry ${r.retries}  ·  ${if (enabled) "armed" else "off"}", 12f, C.hint),
+                UI.text(this@MainActivity, "${t.actions.size} action(s)  ·  retry ${t.retries}  ·  used by $usedBy profile(s)", 12f, C.hint),
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(4f)
                 }
@@ -649,6 +678,7 @@ class MainActivity : Activity() {
                 card.addView(UI.vsep(this@MainActivity, dp(6f)))
                 for ((ic, txt) in acts) card.addView(actionRow(ic, txt, C.primary))
             }
+            card.setOnClickListener { taskDialog(t) }
             return cardWrap(card)
         }
     }
@@ -745,8 +775,8 @@ class MainActivity : Activity() {
         })
         svcCard.addView(svcRow, matchWrap())
         autoSwitch = Switch(this)
-        autoSwitch.isChecked = RuleStore.autostart(this)
-        autoSwitch.setOnCheckedChangeListener { _, checked -> RuleStore.setAutostart(this, checked) }
+        autoSwitch.isChecked = Store.autostart(this)
+        autoSwitch.setOnCheckedChangeListener { _, checked -> Store.setAutostart(this, checked) }
         val autoRow = switchRow("Start on boot", autoSwitch, UI.text(this, "restart engine after reboot", 13f, C.textSec), null)
         svcCard.addView(autoRow, matchWrap())
         root.addView(svcCard, matchWrap())
@@ -783,8 +813,8 @@ class MainActivity : Activity() {
         // ---- DATA
         root.addView(sectionLabel("DATA"))
         val dataCard = cardContainer()
-        dataCard.addView(actionRowContent("Export", "backup rules to eventsh_backup.json", { exportRules() }).first, matchWrap())
-        dataCard.addView(actionRowContent("Import", "restore rules from backup file", { importRules() }).first, matchWrap())
+        dataCard.addView(actionRowContent("Export", "backup profiles + tasks to eventsh_backup.json", { exportRules() }).first, matchWrap())
+        dataCard.addView(actionRowContent("Import", "restore profiles + tasks from backup file", { importRules() }).first, matchWrap())
         root.addView(dataCard, matchWrap())
 
         // ---- ABOUT
@@ -849,7 +879,8 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------ refresh / stats
     private fun refreshScreen() {
-        rules = RuleStore.load(this)
+        profiles = Store.profiles(this)
+        tasks = Store.tasks(this)
         logs = EventLog.snapshot(60)
         running = isServiceRunning()
         rootOk = RootBridge.available == true
@@ -860,9 +891,9 @@ class MainActivity : Activity() {
         svcChip.setTextColor(if (running) C.primary else C.disabled)
         rootChip.text = if (rootChecked) (if (rootOk) "SU:ON" else "SU:OFF") else "SU:?"
         rootChip.setTextColor(if (rootOk) C.warning else if (rootChecked) C.hint else C.hint)
-        val armed = rules.count { it.enabled }
-        statusChip.text = if (rules.isEmpty()) "No profiles yet - tap + to begin"
-        else "$armed/${rules.size} armed  ·  ${rules.count { it.timeCtx != null || it.isDailyTimer || it.isOneShotTimer }} timers"
+        val armed = profiles.count { it.enabled }
+        statusChip.text = if (profiles.isEmpty()) "No profiles yet - tap + to begin"
+        else "$armed/${profiles.size} armed  ·  ${profiles.count { it.timeCtx != null || it.isDailyTimer || it.isOneShotTimer }} timers  ·  ${tasks.size} task(s)"
 
         profileAdapter.notifyDataSetChanged()
         taskAdapter.notifyDataSetChanged()
@@ -877,7 +908,7 @@ class MainActivity : Activity() {
         suppressSwitch = true
         svcSwitch.isChecked = running
         suppressSwitch = false
-        svcSwitchRow.text = if (running) "listening for events" else "stopped - rules idle"
+        svcSwitchRow.text = if (running) "listening for events" else "stopped - profiles idle"
         rootStatusTv.text = when {
             !rootChecked -> "?"
             rootOk -> "ON"
@@ -891,7 +922,7 @@ class MainActivity : Activity() {
         notifStatusTv.text = if (notifNeed.granted(this)) "OK" else "SET"
         notifStatusTv.setTextColor(if (notifNeed.granted(this)) C.ok else C.warning)
         if (::aboutText.isInitialized) {
-            aboutText.text = "EVENTSH v0.1.0\n$ramText   $cpuText   battery $battText\nlisteners: ${rules.count { it.enabled }}"
+            aboutText.text = "EVENTSH v0.1.0\n$ramText   $cpuText   battery $battText\nprofiles: ${profiles.count { it.enabled }} armed / ${profiles.size}"
         }
     }
 
@@ -918,27 +949,32 @@ class MainActivity : Activity() {
         0L
     }
 
-    // ------------------------------------------------------------ rule actions
-    private fun toggleRule(r: Rule) {
-        val cur = RuleStore.load(this).toMutableList()
-        val i = cur.indexOfFirst { it.id == r.id }
+    // ------------------------------------------------------------ profile actions
+    private fun toggleProfile(p: Profile) {
+        val cur = Store.profiles(this).toMutableList()
+        val i = cur.indexOfFirst { it.id == p.id }
         if (i >= 0) {
-            cur[i] = r.copy(enabled = !r.enabled)
-            RuleStore.save(this, cur)
+            cur[i] = p.copy(enabled = !p.enabled)
+            Store.saveProfiles(this, cur)
+            if (cur[i].enabled && (cur[i].isOneShotTimer || cur[i].isDailyTimer || cur[i].timeCtx != null)) {
+                Scheduler.schedule(this, cur[i])
+            } else if (!cur[i].enabled) {
+                Scheduler.cancel(this, cur[i])
+            }
             if (running) EventHub.resync(this)
             refreshScreen()
         }
     }
 
-    private fun deleteRule(r: Rule) {
+    private fun deleteProfile(p: Profile) {
         AlertDialog.Builder(this)
             .setTitle("Delete profile")
-            .setMessage("delete '${r.label}'?")
+            .setMessage("delete '${p.name}'?")
             .setPositiveButton("DELETE") { _, _ ->
-                Scheduler.cancel(this, r)
-                val cur = RuleStore.load(this).toMutableList()
-                cur.removeAll { it.id == r.id }
-                RuleStore.save(this, cur)
+                Scheduler.cancel(this, p)
+                val cur = Store.profiles(this).toMutableList()
+                cur.removeAll { it.id == p.id }
+                Store.saveProfiles(this, cur)
                 if (isServiceRunning()) EventHub.resync(this)
                 refreshScreen()
             }
@@ -946,21 +982,21 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun testRule(r: Rule) {
-        val ev = r.eventActions.firstOrNull() ?: r.event.ifBlank { "test" }
-        EventLog.push("[test] firing '${r.label}' on $ev")
-        Dispatcher.fire(this, r, ev, mapOf("summary" to "manual test"))
+    private fun testProfile(p: Profile) {
+        val ev = p.eventActions.firstOrNull() ?: "test"
+        EventLog.push("[test] firing '${p.name}' on $ev")
+        Dispatcher.fire(this, p, ev, mapOf("summary" to "manual test"))
     }
 
     private fun exportRules() {
         try {
             val outDir = getExternalFilesDir(null) ?: filesDir
             val f = File(outDir, "eventsh_backup.json")
-            val rules = RuleStore.load(this)
-            val json = org.json.JSONArray()
-            rules.forEach { json.put(it.toJson()) }
-            f.writeText(json.toString())
-            EventLog.push("[bak] exported ${rules.size} rule(s) -> ${f.absolutePath}")
+            val out = org.json.JSONObject()
+                .put("profiles", org.json.JSONArray().apply { profiles.forEach { put(it.toJson()) } })
+                .put("tasks", org.json.JSONArray().apply { tasks.forEach { put(it.toJson()) } })
+            f.writeText(out.toString())
+            EventLog.push("[bak] exported ${profiles.size} profile(s) + ${tasks.size} task(s) -> ${f.absolutePath}")
         } catch (e: Exception) {
             EventLog.push("[bak] export FAILED: ${e.message?.take(100) ?: "error"}")
         }
@@ -976,13 +1012,18 @@ class MainActivity : Activity() {
                 refreshScreen()
                 return
             }
-            val arr = org.json.JSONArray(f.readText())
-            val rules = ArrayList<Rule>(arr.length())
-            for (i in 0 until arr.length()) rules.add(Rule.fromJson(arr.getJSONObject(i)))
-            RuleStore.save(this, rules)
+            val out = org.json.JSONObject(f.readText())
+            val profiles = ArrayList<Profile>()
+            val pArr = out.optJSONArray("profiles")
+            if (pArr != null) for (i in 0 until pArr.length()) profiles.add(Profile.fromJson(pArr.getJSONObject(i)))
+            val tasks = ArrayList<Task>()
+            val tArr = out.optJSONArray("tasks")
+            if (tArr != null) for (i in 0 until tArr.length()) tasks.add(Task.fromJson(tArr.getJSONObject(i)))
+            Store.saveProfiles(this, profiles)
+            Store.saveTasks(this, tasks)
             Scheduler.rescheduleAll(this)
             if (isServiceRunning()) EventHub.resync(this)
-            EventLog.push("[bak] imported ${rules.size} rule(s)")
+            EventLog.push("[bak] imported ${profiles.size} profile(s) + ${tasks.size} task(s)")
             refreshScreen()
         } catch (e: Exception) {
             EventLog.push("[bak] import FAILED: ${e.message?.take(100) ?: "error"}")
@@ -990,46 +1031,42 @@ class MainActivity : Activity() {
         refreshScreen()
     }
 
-    // ------------------------------------------------------------ rule editor
-    private fun ruleDialog(existing: Rule?) {
+    // ------------------------------------------------------------ profile editor
+    private fun profileDialog(existing: Profile?) {
         val contexts = (existing?.contexts?.toMutableList() ?: mutableListOf<Ctx>())
-        if (contexts.none { it is EventCtx } && existing != null && existing.event.isNotBlank()) {
-            contexts.add(0, EventCtx(existing.event, existing.filter))
+        if (contexts.none { it is EventCtx } && existing != null && existing.eventContext != null) {
+            contexts.add(0, existing.eventContext!!)
+        }
+        var taskId = existing?.taskId ?: ""
+
+        val nameEt = editText("profile name")
+        if (existing != null) nameEt.setText(existing.name)
+        val prioEt = editText("priority (5)")
+        val cdEt = editText("cooldown seconds (0)")
+        if (existing != null) {
+            prioEt.setText(existing.priority.toString())
+            cdEt.setText(existing.cooldownSec.toString())
         }
 
-        val labelEt = editText("label")
-        val taskEt = editText("termux task name")
-        val shellEt = editText("built-in shell command (sh -c ...)")
-        val sendEt = editText("send broadcast action (com.pkg.ACTION)")
-        val sendXEt = editText("extras  key:value (per line | or ;)")
-        val sendPEt = editText("package target (optional)")
-        val textEt = editText("notify text (%VAR% ok)")
-        val rootEt = editText("root command")
-        val cdEt = editText("cooldown seconds (0)")
-        val rtEt = editText("retries on failure (0)")
-        val notifyCb = checkBox("show notification")
-        if (existing != null) {
-            labelEt.setText(existing.label)
-            taskEt.setText(existing.taskName)
-            shellEt.setText(existing.shellCmd)
-            sendEt.setText(existing.sendAction)
-            sendXEt.setText(existing.sendExtras)
-            sendPEt.setText(existing.sendPackage)
-            textEt.setText(existing.notifyText)
-            rootEt.setText(existing.rootCmd)
-            cdEt.setText(existing.cooldownSec.toString())
-            rtEt.setText(existing.retries.toString())
-            notifyCb.isChecked = existing.notify
-        } else {
-            notifyCb.isChecked = true
+        val taskTv = TextView(this).apply {
+            textSize = 15f
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            background = UI.rounded(C.card, 10f, C.border, 1f)
+            setOnClickListener {
+                taskPickDialog(taskId) { tid ->
+                    taskId = tid
+                    text = taskNameOr(tid)
+                }
+            }
         }
+        taskTv.text = taskNameOr(taskId)
 
         // ---- contexts editor (Tasker-style: Event / Time / Day / Variable / App) ----
         val ctxBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun refreshCtx() {
             ctxBox.removeAllViews()
             if (contexts.isEmpty()) {
-                ctxBox.addView(UI.text(this, "(no contexts yet - add one)", 14f, C.hint).apply {
+                ctxBox.addView(UI.text(this, "(no triggers yet - add one)", 14f, C.hint).apply {
                     setPadding(dp(4f), dp(8f), dp(4f), dp(8f))
                 })
             } else {
@@ -1041,7 +1078,7 @@ class MainActivity : Activity() {
                     })
                 }
             }
-            ctxBox.addView(ctxRow("+ ADD CONTEXT", C.accent) {
+            ctxBox.addView(ctxRow("+ ADD TRIGGER", C.accent) {
                 addContext(contexts) { refreshCtx() }
             })
         }
@@ -1049,75 +1086,54 @@ class MainActivity : Activity() {
 
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(labelEt)
-            addView(sectionLabel("CONTEXTS"))
+            addView(nameEt)
+            addView(sectionLabel("TRIGGERS (all must match)"))
             addView(ctxBox)
-            addView(sectionLabel("RUN SCRIPT (TERMUX)"))
-            addView(taskEt)
-            addView(sectionLabel("SHELL (BUILT-IN)"))
-            addView(shellEt)
-            addView(sectionLabel("SEND BROADCAST"))
-            addView(sendEt)
-            addView(sendXEt)
-            addView(sendPEt)
-            addView(sectionLabel("NOTIFY"))
-            addView(notifyCb)
-            addView(textEt)
-            addView(sectionLabel("ROOT COMMAND"))
-            addView(rootEt)
-            addView(sectionLabel("TIMING"))
+            addView(sectionLabel("LINKED TASK"))
+            addView(taskTv)
+            addView(sectionLabel("ADVANCED"))
+            addView(prioEt)
             addView(cdEt)
-            addView(rtEt)
         }
         val scroll = ScrollView(this).apply { addView(ll) }
 
         val d = AlertDialog.Builder(this)
             .setTitle(if (existing == null) "NEW PROFILE" else "EDIT PROFILE")
-            .setMessage("tap a context to edit it\nall contexts must match (AND)")
+            .setMessage("trigger contexts + linked task")
             .setView(scroll)
             .setPositiveButton("SAVE") { _, _ ->
                 val eventCtx = contexts.filterIsInstance<EventCtx>().firstOrNull()
                 val timeCtx = contexts.filterIsInstance<TimeCtx>().firstOrNull()
                 val appCtx = contexts.filterIsInstance<AppCtx>().firstOrNull()
                 val varCtx = contexts.filterIsInstance<VarCtx>().firstOrNull()
-                val event = eventCtx?.action ?: ""
-                val filter = eventCtx?.filter ?: ""
-                if (event.isBlank() && timeCtx == null && appCtx == null && varCtx == null) {
-                    EventLog.push("[ui] add an EVENT, TIME, APP or VARIABLE context")
+                val isTimer = existing != null && (existing.isOneShotTimer || existing.isDailyTimer)
+                if (eventCtx == null && timeCtx == null && appCtx == null && varCtx == null && !isTimer) {
+                    EventLog.push("[ui] add an EVENT, TIME, APP or VARIABLE trigger")
                     return@setPositiveButton
                 }
-                val base = existing ?: Rule(
-                    id = "r_" + UUID.randomUUID().toString().take(8),
-                    event = event, label = "NEW.RULE"
+                val base = existing ?: Profile(
+                    id = "p_" + UUID.randomUUID().toString().take(8),
+                    name = "PROFILE"
                 )
-                val newRule = base.copy(
-                    label = labelEt.text.toString().trim().ifBlank { "RULE" },
-                    event = event,
-                    filter = filter,
+                val newP = base.copy(
+                    name = nameEt.text.toString().trim().ifBlank { "PROFILE" },
                     contexts = contexts,
+                    taskId = taskId,
                     enabled = true,
-                    cooldownSec = cdEt.text.toString().toLongOrNull() ?: 0L,
-                    retries = (rtEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 10),
-                    taskName = taskEt.text.toString().trim(),
-                    shellCmd = shellEt.text.toString().trim(),
-                    sendAction = sendEt.text.toString().trim(),
-                    sendExtras = sendXEt.text.toString(),
-                    sendPackage = sendPEt.text.toString().trim(),
-                    notifyText = textEt.text.toString(),
-                    rootCmd = rootEt.text.toString().trim(),
-                    notify = notifyCb.isChecked
+                    priority = (prioEt.text.toString().toIntOrNull() ?: 5).coerceIn(1, 10),
+                    cooldownSec = cdEt.text.toString().toLongOrNull() ?: 0L
                 )
-                val cur = RuleStore.load(this).toMutableList()
+                val cur = Store.profiles(this).toMutableList()
                 val i = cur.indexOfFirst { it.id == base.id }
-                if (i >= 0) cur[i] = newRule else cur.add(newRule)
-                RuleStore.save(this, cur)
+                if (i >= 0) cur[i] = newP else cur.add(newP)
+                Store.saveProfiles(this, cur)
                 when {
-                    newRule.isOneShotTimer || newRule.isDailyTimer -> Scheduler.schedule(this, newRule)
-                    newRule.event.isBlank() && newRule.timeCtx != null -> Scheduler.scheduleCtx(this, newRule)
+                    newP.isOneShotTimer || newP.isDailyTimer -> Scheduler.schedule(this, newP)
+                    newP.timeCtx != null -> Scheduler.scheduleCtx(this, newP)
                 }
                 if (isServiceRunning()) EventHub.resync(this)
                 refreshScreen()
-                val missing = Permissions.requiredFor(newRule).filter { !it.granted(this) }
+                val missing = Permissions.requiredFor(newP, Store.tasks(this)).filter { !it.granted(this) }
                 if (missing.isNotEmpty()) {
                     EventLog.push("[perm] ${missing.joinToString(", ") { it.label }}")
                     showPermissionsDialog(missing)
@@ -1125,16 +1141,152 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("CANCEL", null)
         if (existing != null) {
-            d.setNeutralButton("DELETE") { _, _ ->
-                Scheduler.cancel(this, existing)
-                val cur = RuleStore.load(this).toMutableList()
-                cur.removeAll { it.id == existing.id }
-                RuleStore.save(this, cur)
-                if (isServiceRunning()) EventHub.resync(this)
-                refreshScreen()
-            }
+            d.setNeutralButton("DELETE") { _, _ -> deleteProfile(existing) }
         }
         d.show()
+    }
+
+    private fun taskNameOr(tid: String): String =
+        if (tid.isBlank()) "(tap to link a task)" else (tasks.find { it.id == tid }?.name ?: "(unlinked task)")
+
+    private fun taskPickDialog(current: String, onPick: (String) -> Unit) {
+        val names = ArrayList<String>().apply { add("(no task)") }
+        tasks.forEach { names.add(it.name) }
+        val curIdx = if (current.isBlank()) 0 else {
+            val t = tasks.indexOfFirst { it.id == current }
+            if (t >= 0) t + 1 else 0
+        }
+        AlertDialog.Builder(this)
+            .setTitle("LINK TASK")
+            .setSingleChoiceItems(names.toTypedArray(), curIdx) { _, which ->
+                onPick(if (which == 0) "" else tasks[which - 1].id)
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    // ------------------------------------------------------------ task editor
+    private fun taskDialog(existing: Task?) {
+        val nameEt = editText("task name")
+        if (existing != null) nameEt.setText(existing.name)
+        val rtEt = editText("retries on failure (0)")
+        if (existing != null) rtEt.setText(existing.retries.toString())
+
+        val actions = existing?.actions?.toMutableList() ?: mutableListOf()
+        val actBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun refreshActs() {
+            actBox.removeAllViews()
+            if (actions.isEmpty()) {
+                actBox.addView(UI.text(this, "(no actions yet - add one)", 14f, C.hint).apply {
+                    setPadding(dp(4f), dp(6f), dp(4f), dp(6f))
+                })
+            } else {
+                for (i in actions.indices) {
+                    val a = actions[i]
+                    val idx = i
+                    actBox.addView(ctxRow("${a.label()}  ${a.summary()}", C.text) {
+                        actionDialog(a) { na -> actions[idx] = na; refreshActs() }
+                    })
+                }
+            }
+            actBox.addView(ctxRow("+ ADD ACTION", C.accent) {
+                actionTypePick { type ->
+                    actionDialog(Action(type)) { na -> actions.add(na); refreshActs() }
+                }
+            })
+        }
+        refreshActs()
+
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(nameEt)
+            addView(sectionLabel("ACTIONS (run in order)"))
+            addView(actBox)
+            addView(sectionLabel("FAILURE"))
+            addView(rtEt)
+        }
+        val scroll = ScrollView(this).apply { addView(ll) }
+
+        val d = AlertDialog.Builder(this)
+            .setTitle(if (existing == null) "NEW TASK" else "EDIT TASK")
+            .setView(scroll)
+            .setPositiveButton("SAVE") { _, _ ->
+                val base = existing ?: Task(id = "tk_" + UUID.randomUUID().toString().take(8), name = "TASK")
+                val newT = base.copy(
+                    name = nameEt.text.toString().trim().ifBlank { "TASK" },
+                    retries = (rtEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 10),
+                    actions = actions
+                )
+                val cur = Store.tasks(this).toMutableList()
+                val i = cur.indexOfFirst { it.id == base.id }
+                if (i >= 0) cur[i] = newT else cur.add(newT)
+                Store.saveTasks(this, cur)
+                refreshScreen()
+            }
+            .setNegativeButton("CANCEL", null)
+        if (existing != null) {
+            d.setNeutralButton("DELETE") { _, _ -> deleteTask(existing) }
+        }
+        d.show()
+    }
+
+    private fun deleteTask(t: Task) {
+        val cur = Store.tasks(this).toMutableList()
+        cur.removeAll { it.id == t.id }
+        Store.saveTasks(this, cur)
+        val ps = Store.profiles(this).map { if (it.taskId == t.id) it.copy(taskId = "") else it }
+        Store.saveProfiles(this, ps)
+        refreshScreen()
+    }
+
+    private fun actionTypePick(onPick: (String) -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle("ADD ACTION")
+            .setItems(arrayOf("SCRIPT (Termux)", "SHELL (built-in)", "SEND BROADCAST", "NOTIFY", "ROOT")) { _, which ->
+                when (which) {
+                    0 -> onPick(Actions.SCRIPT)
+                    1 -> onPick(Actions.SHELL)
+                    2 -> onPick(Actions.INTENT)
+                    3 -> onPick(Actions.NOTIFY)
+                    4 -> onPick(Actions.ROOT)
+                }
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    private fun actionDialog(existing: Action, onSave: (Action) -> Unit) {
+        val type = existing.type
+        val valueEt = editText("value")
+        val extraEt = editText("extras  key:value (per line | or ;)")
+        val pkgEt = editText("package target (optional)")
+        when (type) {
+            Actions.SCRIPT -> valueEt.hint = "termux task name"
+            Actions.SHELL -> valueEt.hint = "shell command (sh -c ...)"
+            Actions.INTENT -> valueEt.hint = "broadcast action (com.pkg.ACTION)"
+            Actions.NOTIFY -> valueEt.hint = "notify text (%VAR% ok)"
+            Actions.ROOT -> valueEt.hint = "root command"
+        }
+        valueEt.setText(existing.value)
+        extraEt.setText(existing.extra)
+        pkgEt.setText(existing.extra2)
+
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(valueEt)
+            if (type == Actions.INTENT) {
+                addView(extraEt)
+                addView(pkgEt)
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("ACTION  ${existing.label()}")
+            .setView(ll)
+            .setPositiveButton("OK") { _, _ ->
+                onSave(Action(type, valueEt.text.toString(), extraEt.text.toString(), pkgEt.text.toString()))
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
     }
 
     private fun editText(hint: String): EditText = EditText(this).apply {
@@ -1516,7 +1668,7 @@ class MainActivity : Activity() {
     }
 
     private fun pickEvent(onPick: (String) -> Unit) {
-        val used = RuleStore.load(this).flatMap { it.eventActions }
+        val used = Store.profiles(this).flatMap { it.eventActions }
             .filter { it.isNotBlank() }
             .distinct()
             .filter { it !in EventCatalog.STANDARD }
@@ -1583,22 +1735,27 @@ class MainActivity : Activity() {
                     EventLog.push("[timer] bad time: $w")
                     return@setPositiveButton
                 }
-                val rule = Rule(
+                val acts = ArrayList<Action>()
+                if (shellEt.text.isNotBlank()) acts.add(Action(Actions.SHELL, shellEt.text.toString().trim()))
+                if (taskEt.text.isNotBlank()) acts.add(Action(Actions.SCRIPT, taskEt.text.toString().trim()))
+                if (rootEt.text.isNotBlank()) acts.add(Action(Actions.ROOT, rootEt.text.toString().trim()))
+                if (notifyCb.isChecked) acts.add(Action(Actions.NOTIFY, ""))
+                val taskId = if (acts.isEmpty()) "" else {
+                    val t = Task(id = "tk_" + UUID.randomUUID().toString().take(8), name = labelEt.text.toString().trim().ifBlank { "TIMER" }, actions = acts)
+                    Store.saveTasks(this, Store.tasks(this).toMutableList().apply { add(t) })
+                    t.id
+                }
+                val profile = Profile(
                     id = "t_" + UUID.randomUUID().toString().take(8),
-                    event = "timer.one",
-                    label = labelEt.text.toString().trim().ifBlank { "TIMER" },
+                    name = labelEt.text.toString().trim().ifBlank { "TIMER" },
                     enabled = true,
-                    taskName = taskEt.text.toString().trim(),
-                    shellCmd = shellEt.text.toString().trim(),
-                    notify = notifyCb.isChecked,
-                    rootCmd = rootEt.text.toString().trim(),
+                    taskId = taskId,
                     atEpoch = atEpoch,
                     daily = daily
                 )
-                val cur = RuleStore.load(this).toMutableList().apply { add(rule) }
-                RuleStore.save(this, cur)
-                Scheduler.schedule(this, rule)
-                EventLog.push("[timer] armed ${rule.label} " + if (daily.isNotBlank()) daily else atEpoch.toString())
+                Store.saveProfiles(this, Store.profiles(this).toMutableList().apply { add(profile) })
+                Scheduler.schedule(this, profile)
+                EventLog.push("[timer] armed ${profile.name} " + if (daily.isNotBlank()) daily else atEpoch.toString())
                 refreshScreen()
             }
             .setNegativeButton("CANCEL", null)

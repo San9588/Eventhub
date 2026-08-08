@@ -36,7 +36,7 @@ object EventHub {
     )
 
     private fun syncCustomActions(ctx: Context) {
-        val custom = RuleStore.load(ctx)
+        val custom = Store.cachedProfiles(ctx)
             .flatMap { it.eventActions }
             .filter { it.isNotBlank() }
             .filterNot { standard.contains(it) }
@@ -83,38 +83,38 @@ object EventHub {
     }
 
     fun fireDirect(ctx: Context, event: String, data: Map<String, String>) {
-        val rules = RuleStore.cached(ctx).filter { r ->
-            r.enabled && (
-                r.hasEvent(event) ||
-                    // app-only / var-only rules: driven by synthetic state events
-                    (event == "app.state" && r.eventActions.isEmpty() && r.event.isBlank() && r.timeCtx == null && r.appCtx != null) ||
-                    (event == "var.state" && r.eventActions.isEmpty() && r.event.isBlank() && r.timeCtx == null && r.varCtx != null)
+        val profiles = Store.cachedProfiles(ctx).filter { p ->
+            p.enabled && (
+                p.hasEvent(event) ||
+                    // app-only / var-only profiles: driven by synthetic state events
+                    (event == "app.state" && p.eventActions.isEmpty() && p.timeCtx == null && p.appCtx != null) ||
+                    (event == "var.state" && p.eventActions.isEmpty() && p.timeCtx == null && p.varCtx != null)
                 )
         }
-        if (rules.isEmpty()) return
-        rules.sortedByDescending { it.eventContext?.priority ?: 5 }
+        if (profiles.isEmpty()) return
+        profiles.sortedByDescending { it.eventContext?.priority ?: it.priority }
             .forEach { fireRule(ctx, it, event, data) }
     }
 
     /**
-     * Fires a single rule for an event, applying cooldown/debounce, the event
+     * Fires a single profile for an event, applying cooldown, the event
      * filter, and the remaining context gates (time/day/var/app).
      */
-    fun fireRule(ctx: Context, rule: Rule, event: String, data: Map<String, String>) {
-        if (!rule.enabled) return
+    fun fireRule(ctx: Context, profile: Profile, event: String, data: Map<String, String>) {
+        if (!profile.enabled) return
         val now = System.currentTimeMillis()
-        val last = lastFire[rule.id] ?: 0L
-        val waitMs = rule.cooldownSec * 1000L + rule.debounceMs
+        val last = lastFire[profile.id] ?: 0L
+        val waitMs = profile.cooldownSec * 1000L
         if (now - last < waitMs) return
-        if (!passesFilter(rule, event, data)) return
-        if (!ContextGate.check(ctx, rule, data)) return
-        lastFire[rule.id] = now
-        Dispatcher.fire(ctx, rule, event, data)
+        if (!passesFilter(profile, event, data)) return
+        if (!ContextGate.check(ctx, profile, data)) return
+        lastFire[profile.id] = now
+        Dispatcher.fire(ctx, profile, event, data)
     }
 
-    private fun passesFilter(r: Rule, event: String, data: Map<String, String>): Boolean {
+    private fun passesFilter(p: Profile, event: String, data: Map<String, String>): Boolean {
         // Tasker-style per-parameter filters, each matched against its own data key
-        val ev = r.contexts.filterIsInstance<EventCtx>().firstOrNull { it.action == event }
+        val ev = p.contexts.filterIsInstance<EventCtx>().firstOrNull { it.action == event }
         ev?.params?.forEach { (key, pat) ->
             val v = data[key]
             if (v == null) return false
@@ -131,7 +131,7 @@ object EventHub {
             }
         }
         // legacy single summary filter (back-compat with old rules)
-        val filter = ev?.filter ?: r.filter
+        val filter = ev?.filter
         if (filter.isBlank()) return true
         val num = filter.toLongOrNull()
         val value = data["value"]?.toLongOrNull()

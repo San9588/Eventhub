@@ -3,26 +3,21 @@ package com.eventsh.app.engine
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Rule(
+/**
+ * A profile is a SET of contexts that link to a Task (Tasker "Profile").
+ * When every context is satisfied the linked Task runs. Profiles carry no
+ * actions themselves - those live in the linked Task.
+ */
+data class Profile(
     val id: String,
-    val event: String,
-    val label: String,
+    val name: String,
     val enabled: Boolean = true,
+    val priority: Int = 5,
     val cooldownSec: Long = 0L,
-    val debounceMs: Long = 0L,
-    val taskName: String = "",
-    val shellCmd: String = "",
-    val sendAction: String = "",
-    val sendExtras: String = "",
-    val sendPackage: String = "",
-    val notify: Boolean = true,
-    val notifyText: String = "",
-    val rootCmd: String = "",
-    val filter: String = "",
-    val retries: Int = 0,
+    val contexts: List<Ctx> = emptyList(),
+    val taskId: String = "",
     val atEpoch: Long = 0L,
-    val daily: String = "",
-    val contexts: List<Ctx> = emptyList()
+    val daily: String = ""
 ) {
     val isOneShotTimer: Boolean get() = atEpoch > 0
     val isDailyTimer: Boolean get() = daily.isNotBlank()
@@ -36,11 +31,11 @@ data class Rule(
 
     val hasTrigger: Boolean get() = eventActions.isNotEmpty() || timeCtx != null || appCtx != null || varCtx != null
 
-    /** All broadcast event names this rule listens for (from every EventCtx). */
+    /** All broadcast event names this profile listens for (from every EventCtx). */
     val eventActions: List<String> get() = contexts.filterIsInstance<EventCtx>().map { it.action }
 
-    /** True if any EventCtx (or the legacy [event] field) listens for [name]. */
-    fun hasEvent(name: String): Boolean = eventActions.contains(name) || event == name
+    /** True if any EventCtx listens for [name]. */
+    fun hasEvent(name: String): Boolean = eventActions.contains(name)
 
     /** Human-readable single line describing the trigger context. */
     fun contextLine(): String {
@@ -54,21 +49,11 @@ data class Rule(
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
-        put("event", event)
-        put("label", label)
+        put("name", name)
         put("enabled", enabled)
+        put("prio", priority)
         put("cooldown", cooldownSec)
-        put("debounce", debounceMs)
-        put("task", taskName)
-        put("shell", shellCmd)
-        put("send", sendAction)
-        put("sendExtras", sendExtras)
-        put("sendPkg", sendPackage)
-        put("notify", notify)
-        put("notext", notifyText)
-        put("root", rootCmd)
-        put("filter", filter)
-        put("retries", retries)
+        put("taskId", taskId)
         put("at", atEpoch)
         put("daily", daily)
         val arr = JSONArray()
@@ -77,7 +62,7 @@ data class Rule(
     }
 
     companion object {
-        fun fromJson(o: JSONObject): Rule {
+        fun fromJson(o: JSONObject): Profile {
             val contexts = ArrayList<Ctx>()
             val arr = o.optJSONArray("ctx")
             if (arr != null) {
@@ -90,26 +75,16 @@ data class Rule(
                 val legacy = o.optString("event", "")
                 if (legacy.isNotBlank()) contexts.add(0, EventCtx(legacy, o.optString("filter", "")))
             }
-            return Rule(
-                id = o.optString("id", "r_" + Math.random().toString().take(8)),
-                event = o.optString("event", ""),
-                label = o.optString("label", o.optString("event", "")),
+            return Profile(
+                id = o.optString("id", "p_" + Math.random().toString().take(8)),
+                name = o.optString("name", o.optString("label", "PROFILE")),
                 enabled = o.optBoolean("enabled", true),
+                priority = o.optInt("prio", 5),
                 cooldownSec = o.optLong("cooldown", 0L),
-                debounceMs = o.optLong("debounce", 0L),
-                taskName = o.optString("task", ""),
-                shellCmd = o.optString("shell", ""),
-                sendAction = o.optString("send", ""),
-                sendExtras = o.optString("sendExtras", ""),
-                sendPackage = o.optString("sendPkg", ""),
-                notify = o.optBoolean("notify", true),
-                notifyText = o.optString("notext", ""),
-                rootCmd = o.optString("root", ""),
-                filter = o.optString("filter", ""),
-                retries = o.optInt("retries", 0),
+                contexts = contexts,
+                taskId = o.optString("taskId", ""),
                 atEpoch = o.optLong("at", 0L),
-                daily = o.optString("daily", ""),
-                contexts = contexts
+                daily = o.optString("daily", "")
             )
         }
     }

@@ -8,34 +8,35 @@ import com.eventsh.app.receiver.TimerReceiver
 import java.util.Calendar
 
 /**
- * Schedules one-shot and daily timer rules via AlarmManager.
+ * Schedules timer profiles via AlarmManager.
  *
- * A timer rule is a normal [Rule] with either `atEpoch > 0` (one-shot)
- * or a non-blank `daily` field "HH:mm" (repeating). When it fires, its
- * own task / notify / root actions run, and the corresponding event
- * (`timer.one` / `timer.daily`) is dispatched so other rules can listen.
+ * A timer profile is a normal [Profile] with either `atEpoch > 0` (one-shot)
+ * or a non-blank `daily` field "HH:mm" (repeating). A profile with a TimeCtx
+ * (and no broadcast event) is armed to fire at its next matching occurrence.
+ * When it fires, its own linked Task runs and the corresponding event
+ * (`timer.one` / `timer.daily`) is dispatched so other profiles can listen.
  */
 object Scheduler {
     const val ACTION_FIRE = "com.eventsh.TIMER_FIRE"
     const val EXTRA_ID = "id"
     const val EVENT_TIME = "timer.time"
 
-    fun schedule(ctx: Context, rule: Rule) {
+    fun schedule(ctx: Context, profile: Profile) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val pi = fireIntent(ctx, rule)
-        if (rule.isOneShotTimer) {
-            setAlarm(am, rule.atEpoch, pi)
-        } else if (rule.isDailyTimer) {
-            setAlarm(am, nextDaily(rule.daily), pi)
+        val pi = fireIntent(ctx, profile)
+        if (profile.isOneShotTimer) {
+            setAlarm(am, profile.atEpoch, pi)
+        } else if (profile.isDailyTimer) {
+            setAlarm(am, nextDaily(profile.daily), pi)
         }
     }
 
-    /** Schedules a rule whose only trigger is a TimeCtx (no broadcast event). */
-    fun scheduleCtx(ctx: Context, rule: Rule) {
-        val tc = rule.timeCtx ?: return
-        val next = nextCtxTrigger(tc, rule.dayCtx, System.currentTimeMillis())
+    /** Schedules a profile whose only trigger is a TimeCtx (no broadcast event). */
+    fun scheduleCtx(ctx: Context, profile: Profile) {
+        val tc = profile.timeCtx ?: return
+        val next = nextCtxTrigger(tc, profile.dayCtx, System.currentTimeMillis())
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        setAlarm(am, next, fireIntent(ctx, rule))
+        setAlarm(am, next, fireIntent(ctx, profile))
     }
 
     /**
@@ -51,14 +52,14 @@ object Scheduler {
         }
     }
 
-    fun cancel(ctx: Context, rule: Rule) {
+    fun cancel(ctx: Context, profile: Profile) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        am.cancel(fireIntent(ctx, rule))
+        am.cancel(fireIntent(ctx, profile))
     }
 
-    /** Re-arms every persisted timer / time-context rule (call on boot / service start). */
+    /** Re-arms every persisted timer / time-context profile (call on boot / service start). */
     fun rescheduleAll(ctx: Context) {
-        RuleStore.load(ctx).filter { it.enabled }.forEach {
+        Store.profiles(ctx).filter { it.enabled }.forEach {
             when {
                 it.isOneShotTimer || it.isDailyTimer -> schedule(ctx, it)
                 it.timeCtx != null -> scheduleCtx(ctx, it)
@@ -67,36 +68,36 @@ object Scheduler {
     }
 
     /** Called from TimerReceiver when an alarm fires. */
-    fun onFire(ctx: Context, ruleId: String) {
-        val rules = RuleStore.load(ctx)
-        val rule = rules.find { it.id == ruleId } ?: return
-        if (!rule.enabled) return
-        val data = mapOf("summary" to rule.label, "timer" to rule.id)
+    fun onFire(ctx: Context, profileId: String) {
+        val profiles = Store.profiles(ctx)
+        val p = profiles.find { it.id == profileId } ?: return
+        if (!p.enabled) return
+        val data = mapOf("summary" to p.name, "timer" to p.id)
         when {
-            rule.isOneShotTimer -> {
-                RuleStore.save(ctx, rules.toMutableList().apply { remove(rule) })
-                Dispatcher.fire(ctx, rule, "timer.one", data)
+            p.isOneShotTimer -> {
+                Store.saveProfiles(ctx, profiles.toMutableList().apply { remove(p) })
+                Dispatcher.fire(ctx, p, "timer.one", data)
                 EventHub.dispatch("timer.one", data)
             }
-            rule.isDailyTimer -> {
-                schedule(ctx, rule)
-                Dispatcher.fire(ctx, rule, "timer.daily", data)
+            p.isDailyTimer -> {
+                schedule(ctx, p)
+                Dispatcher.fire(ctx, p, "timer.daily", data)
                 EventHub.dispatch("timer.daily", data)
             }
-            rule.timeCtx != null -> {
-                scheduleCtx(ctx, rule)
-                EventHub.fireRule(ctx, rule, EVENT_TIME, data)
+            p.timeCtx != null -> {
+                scheduleCtx(ctx, p)
+                EventHub.fireRule(ctx, p, EVENT_TIME, data)
             }
         }
     }
 
-    private fun fireIntent(ctx: Context, rule: Rule): PendingIntent {
+    private fun fireIntent(ctx: Context, profile: Profile): PendingIntent {
         val i = Intent(ctx, TimerReceiver::class.java).apply {
             action = ACTION_FIRE
-            putExtra(EXTRA_ID, rule.id)
+            putExtra(EXTRA_ID, profile.id)
         }
         return PendingIntent.getBroadcast(
-            ctx, rule.id.hashCode(), i,
+            ctx, profile.id.hashCode(), i,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
     }

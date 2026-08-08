@@ -73,10 +73,10 @@ object Permissions {
         }
     }
 
-    fun requiredFor(rule: Rule): List<Need> {
+    fun requiredFor(profile: Profile, tasks: List<Task>): List<Need> {
         val out = mutableListOf<Need>()
-        val evs = rule.eventActions.toSet() + rule.event
-        if (evs.any { it in setOf("fg_app", "app_open", "app_close") } || rule.appCtx != null) {
+        val evs = profile.eventActions.toSet()
+        if (evs.any { it in setOf("fg_app", "app_open", "app_close") } || profile.appCtx != null) {
             out += Need(
                 "usage", "Usage access", "Detect the foreground app",
                 Kind.SPECIAL, settingsAction = Settings.ACTION_USAGE_ACCESS_SETTINGS
@@ -106,9 +106,10 @@ object Permissions {
                 Kind.RUNTIME, permission = android.Manifest.permission.BLUETOOTH_CONNECT
             )
         }
-        if (rule.notify && Build.VERSION.SDK_INT >= 33) {
+        val linked = tasks.find { it.id == profile.taskId }
+        if (linked?.actions?.any { it.type == Actions.NOTIFY } == true && Build.VERSION.SDK_INT >= 33) {
             out += Need(
-                "notify", "Notifications", "Post rule notifications",
+                "notify", "Notifications", "Post task notifications",
                 Kind.RUNTIME, permission = android.Manifest.permission.POST_NOTIFICATIONS
             )
         }

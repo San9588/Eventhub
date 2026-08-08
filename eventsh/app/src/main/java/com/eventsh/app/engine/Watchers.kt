@@ -58,20 +58,20 @@ object Watchers {
     }
 
     private fun syncNeeds(ctx: Context) {
-        val rules = RuleStore.cached(ctx)
-        needApp = rules.any {
+        val profiles = Store.cachedProfiles(ctx)
+        needApp = profiles.any {
             it.enabled && (it.eventActions.any { e -> e in APP_EVENTS } || it.appCtx != null)
         }
-        needAppState = rules.any {
-            it.enabled && it.eventActions.isEmpty() && it.event.isBlank() &&
+        needAppState = profiles.any {
+            it.enabled && it.eventActions.isEmpty() &&
                 it.timeCtx == null && it.appCtx != null
         }
-        ramThreshold = rules
+        ramThreshold = profiles
             .filter { it.enabled && it.hasEvent("ram_pct") }
             .mapNotNull { it.eventContext?.let { c -> (c.params["value"] ?: c.filter).toIntOrNull() } }
             .firstOrNull()
         needRam = ramThreshold != null
-        diskThreshold = rules
+        diskThreshold = profiles
             .filter { it.enabled && it.hasEvent("disk_free") }
             .mapNotNull { it.eventContext?.let { c -> (c.params["value"] ?: c.filter).toLongOrNull() } }
             .firstOrNull()

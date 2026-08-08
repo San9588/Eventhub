@@ -217,16 +217,16 @@ data class AppCtx(
 }
 
 /**
- * Evaluates the non-event contexts of a rule at trigger time.
+ * Evaluates the non-event contexts of a profile at trigger time.
  * EventCtx is matched by EventHub itself; the others are AND gates here.
  */
 object ContextGate {
 
-    fun check(ctx: Context, rule: Rule, data: Map<String, String>): Boolean {
-        rule.timeCtx?.let { if (!timeMatch(it, Calendar.getInstance())) return false }
-        rule.dayCtx?.let { if (!dayMatch(it, Calendar.getInstance())) return false }
-        rule.varCtx?.let { if (!varMatch(ctx, it)) return false }
-        rule.appCtx?.let { if (!appMatch(it, data, ctx)) return false }
+    fun check(ctx: Context, profile: Profile, data: Map<String, String>): Boolean {
+        profile.timeCtx?.let { if (!timeMatch(it, Calendar.getInstance())) return false }
+        profile.dayCtx?.let { if (!dayMatch(it, Calendar.getInstance())) return false }
+        profile.varCtx?.let { if (!varMatch(ctx, it)) return false }
+        profile.appCtx?.let { if (!appMatch(it, data, ctx)) return false }
         return true
     }
 

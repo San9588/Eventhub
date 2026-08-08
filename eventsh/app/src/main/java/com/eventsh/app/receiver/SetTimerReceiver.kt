@@ -3,14 +3,18 @@ package com.eventsh.app.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.eventsh.app.engine.Action
+import com.eventsh.app.engine.Actions
+import com.eventsh.app.engine.EventCtx
 import com.eventsh.app.engine.EventLog
-import com.eventsh.app.engine.Rule
-import com.eventsh.app.engine.RuleStore
+import com.eventsh.app.engine.Profile
 import com.eventsh.app.engine.Scheduler
+import com.eventsh.app.engine.Store
+import com.eventsh.app.engine.Task
 import java.util.UUID
 
 /**
- * Shell / root interface to create timer rules.
+ * Shell / root interface to create timer profiles.
  *
  * One-shot:
  *   am broadcast -a com.eventsh.SET_TIMER --es at 1730000000 --es task foo --es label "MyTimer"
@@ -18,7 +22,7 @@ import java.util.UUID
  *   am broadcast -a com.eventsh.SET_TIMER --es daily 07:30 --es task morning --es label "Morning"
  *
  * Optional: --es root "cmd" --es notify true|false --es filter x --es retries N
- * If no `at` and no `daily` is given, a normal event rule is created with `--es event <name>`.
+ * If no `at` and no `daily` is given, a normal event profile is created with `--es event <name>`.
  */
 class SetTimerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -35,44 +39,55 @@ class SetTimerReceiver : BroadcastReceiver() {
         val root = intent.getStringExtra("root") ?: ""
         val notify = intent.getStringExtra("notify")?.toBooleanStrictOrNull() ?: false
         val retries = intent.getStringExtra("retries")?.toIntOrNull() ?: 0
-        val rule = Rule(
-            id = "t_" + UUID.randomUUID().toString().take(8),
-            event = if (event.isNotBlank()) event else "timer.one",
-            label = label,
+
+        val acts = ArrayList<Action>()
+        if (task.isNotBlank()) acts.add(Action(Actions.SCRIPT, task))
+        if (root.isNotBlank()) acts.add(Action(Actions.ROOT, root))
+        if (notify) acts.add(Action(Actions.NOTIFY, ""))
+
+        val taskId = if (acts.isEmpty()) "" else {
+            val t = Task("tk_" + UUID.randomUUID().toString().take(8), label, acts, retries)
+            Store.saveTasks(context, Store.tasks(context).toMutableList().apply { add(t) })
+            t.id
+        }
+        val contexts = if (event.isNotBlank()) listOf(EventCtx(event)) else emptyList()
+        val profile = Profile(
+            id = "p_" + UUID.randomUUID().toString().take(8),
+            name = label,
             enabled = true,
-            taskName = task,
-            notify = notify,
-            rootCmd = root,
-            retries = retries,
+            contexts = contexts,
+            taskId = taskId,
             atEpoch = at,
             daily = daily
         )
-        val rules = RuleStore.load(context).toMutableList().apply { add(rule) }
-        RuleStore.save(context, rules)
-        Scheduler.schedule(context, rule)
-        EventLog.push("[timer] armed '${rule.label}' " + if (daily.isNotBlank()) daily else "at $at")
+        Store.saveProfiles(context, Store.profiles(context).toMutableList().apply { add(profile) })
+        if (profile.isOneShotTimer || profile.isDailyTimer || profile.timeCtx != null) {
+            Scheduler.schedule(context, profile)
+        }
+        EventLog.push("[timer] armed '${profile.name}' " + if (daily.isNotBlank()) daily else "at $at")
     }
 }
 
 /**
- * Cancel timer rules. `--es id <id>` cancels one; `--es task <task>` cancels all matching.
+ * Cancel timer profiles. `--es id <id>` cancels one; `--es task <task>` cancels all matching.
  */
 class CancelTimerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != "com.eventsh.CANCEL_TIMER") return
         val id = intent.getStringExtra("id")
         val task = intent.getStringExtra("task") ?: ""
-        val rules = RuleStore.load(context)
-        val toRemove = rules.filter { r ->
-            (id != null && r.id == id) || (task.isNotBlank() && r.taskName == task) ||
-                (task == "*" && (r.isOneShotTimer || r.isDailyTimer))
+        val profiles = Store.profiles(context)
+        val toRemove = profiles.filter { p ->
+            (id != null && p.id == id) ||
+                (task.isNotBlank() && p.name == task) ||
+                (task == "*" && (p.isOneShotTimer || p.isDailyTimer))
         }
         if (toRemove.isEmpty()) {
             EventLog.push("[timer] cancel: no match")
             return
         }
         toRemove.forEach { Scheduler.cancel(context, it) }
-        RuleStore.save(context, rules.toMutableList().apply { removeAll(toRemove) })
+        Store.saveProfiles(context, profiles.toMutableList().apply { removeAll(toRemove) })
         EventLog.push("[timer] cancelled ${toRemove.size} timer(s)")
     }
 }

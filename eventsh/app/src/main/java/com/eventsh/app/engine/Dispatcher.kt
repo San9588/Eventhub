@@ -7,6 +7,12 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 
+/**
+ * Runs a profile's linked Task (its list of actions) when a profile fires.
+ * All channels may retry with sleep backoff, so execution runs on a worker
+ * thread. A shell action runs inline so %STDOUT/%STDERR/%EXIT become
+ * available to the actions that follow it.
+ */
 object Dispatcher {
     const val TAG = "EVENTSH"
     const val ACTION_TASKER_REQ = "net.dinglisch.android.tasker.REQBROADCAST"
@@ -21,125 +27,131 @@ object Dispatcher {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             val ch = NotificationChannel(
                 CHANNEL_EVENT, "Event alerts", NotificationManager.IMPORTANCE_DEFAULT
-            ).apply { description = "Rule triggered events" }
+            ).apply { description = "Profile triggered events" }
             ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
         }
     }
 
-    fun fire(ctx: Context, rule: Rule, event: String, data: Map<String, String>) {
-        // all channels may retry with sleep backoff -> keep off the main thread
+    fun fire(ctx: Context, profile: Profile, event: String, data: Map<String, String>) {
+        // actions may retry with sleep backoff -> keep off the main thread
         Thread {
-            fireInner(ctx, rule, event, data)
+            fireInner(ctx, profile, event, data)
         }.start()
     }
 
-    private fun fireInner(ctx: Context, rule: Rule, event: String, data: Map<String, String>) {
+    private fun fireInner(ctx: Context, profile: Profile, event: String, data: Map<String, String>) {
         val vars = Vars.all(ctx, event, data)
         val summary = vars["SUMMARY"] ?: ""
-        EventLog.push("[${rule.label}] $summary")
-        val attempts = (rule.retries + 1).coerceAtLeast(1)
+        EventLog.push("[${profile.name}] $summary")
 
-        // 0) built-in shell runs FIRST so %STDOUT / %STDERR / %EXIT are
-        //    available to the notify text / send extras / root cmd below.
-        if (rule.shellCmd.isNotBlank()) {
-            val cmd = Vars.resolve(rule.shellCmd, vars)
-            retry(attempts, "shell", rule) { _ -> runShell(ctx, rule, cmd, vars) }
-        }
-
-        val taskName = Vars.resolve(rule.taskName, vars)
-        val notifyText = Vars.resolve(rule.notifyText, vars)
-        val rootCmd = Vars.resolve(rule.rootCmd, vars)
-        val sendAction = Vars.resolve(rule.sendAction, vars)
-        val sendExtras = Vars.resolve(rule.sendExtras, vars)
-        val sendPackage = Vars.resolve(rule.sendPackage, vars)
-
-        // 1) Termux script -> plugin protocol OR RUN_COMMAND (no plugin needed)
-        if (taskName.isNotBlank()) {
-            retry(attempts, "tasker", rule) { attempt ->
-                termuxTask(ctx, taskName, vars, event, summary)
+        // own generic broadcast so root scripts / custom receivers still fire
+        try {
+            val i = Intent(ACTION_OWN).apply {
+                putExtra("event", event)
+                putExtra("profile", profile.id)
+                vars.forEach { (k, v) -> putExtra(k, v) }
             }
+            ctx.sendBroadcast(i)
+        } catch (e: Exception) {
+            Log.w(TAG, "own broadcast failed", e)
         }
 
-        // 2) send custom broadcast to other apps (Tasker-style Send Intent)
-        if (sendAction.isNotBlank()) {
-            retry(attempts, "send", rule) { attempt ->
-                try {
-                    val i = Intent(sendAction)
-                    if (sendPackage.isNotBlank()) i.setPackage(sendPackage)
-                    parseExtras(sendExtras).forEach { (k, v) -> putExtraTyped(i, k, v) }
-                    ctx.sendBroadcast(i)
-                    true
-                } catch (e: Exception) {
-                    Log.w(TAG, "send broadcast failed", e)
-                    false
+        val task = Store.tasks(ctx).find { it.id == profile.taskId } ?: return
+        val attempts = (task.retries + 1).coerceAtLeast(1)
+        for (a in task.actions) {
+            execute(ctx, profile, task, a, vars, attempts, event, summary)
+        }
+    }
+
+    private fun execute(
+        ctx: Context,
+        profile: Profile,
+        task: Task,
+        a: Action,
+        vars: MutableMap<String, String>,
+        attempts: Int,
+        event: String,
+        summary: String
+    ) {
+        try {
+            when (a.type) {
+                Actions.SHELL -> if (a.value.isNotBlank()) {
+                    val cmd = Vars.resolve(a.value, vars)
+                    retry(attempts, "shell", profile.name) { runShell(ctx, profile, cmd, vars) }
                 }
-            }
-        }
 
-        // 3) own generic broadcast (root scripts / custom receivers)
-        retry(attempts, "broadcast", rule) { attempt ->
-            try {
-                val i = Intent(ACTION_OWN).apply {
-                    putExtra("event", event)
-                    putExtra("rule", rule.id)
-                    vars.forEach { (k, v) -> putExtra(k, v) }
+                Actions.SCRIPT -> if (a.value.isNotBlank()) {
+                    val taskName = Vars.resolve(a.value, vars)
+                    retry(attempts, "tasker", profile.name) { termuxTask(ctx, taskName, vars, event, summary) }
                 }
-                ctx.sendBroadcast(i)
-                true
-            } catch (e: Exception) {
-                Log.w(TAG, "own broadcast failed", e)
-                false
-            }
-        }
 
-        // 4) notification
-        if (rule.notify) {
-            retry(attempts, "notify", rule) { attempt ->
-                try {
-                    ensureChannel(ctx)
-                    val text = notifyText.ifBlank { "${rule.label}: $summary" }
-                    val n = android.app.Notification.Builder(ctx, CHANNEL_EVENT)
-                        .setSmallIcon(android.R.drawable.ic_menu_more)
-                        .setContentTitle("EVENTSH: ${rule.label}")
-                        .setContentText(text)
-                        .setAutoCancel(true)
-                        .setWhen(System.currentTimeMillis())
-                        .build()
-                    ctx.getSystemService(NotificationManager::class.java)
-                        .notify(rule.id.hashCode() and 0x7fffffff, n)
-                    true
-                } catch (e: Exception) {
-                    Log.w(TAG, "notify failed", e)
-                    false
+                Actions.INTENT -> if (a.value.isNotBlank()) {
+                    val action = Vars.resolve(a.value, vars)
+                    val extras = Vars.resolve(a.extra, vars)
+                    val pkg = Vars.resolve(a.extra2, vars)
+                    retry(attempts, "send", profile.name) {
+                        try {
+                            val i = Intent(action)
+                            if (pkg.isNotBlank()) i.setPackage(pkg)
+                            parseExtras(extras).forEach { (k, v) -> putExtraTyped(i, k, v) }
+                            ctx.sendBroadcast(i)
+                            true
+                        } catch (e: Exception) {
+                            Log.w(TAG, "send broadcast failed", e)
+                            false
+                        }
+                    }
                 }
-            }
-        }
 
-        // 5) root command
-        if (rootCmd.isNotBlank()) {
-            Thread {
-                retry(attempts, "root", rule) { attempt ->
+                Actions.NOTIFY -> retry(attempts, "notify", profile.name) {
                     try {
-                        val out = RootBridge.execute(rootCmd)
-                        EventLog.push("[${rule.label}] root -> ${out?.trim() ?: "ok"}")
-                        out == null || !out.startsWith("exit=")
+                        ensureChannel(ctx)
+                        val text = Vars.resolve(a.value, vars).ifBlank { summary }
+                        val n = android.app.Notification.Builder(ctx, CHANNEL_EVENT)
+                            .setSmallIcon(android.R.drawable.ic_menu_more)
+                            .setContentTitle("EVENTSH: ${profile.name}")
+                            .setContentText(text)
+                            .setAutoCancel(true)
+                            .setWhen(System.currentTimeMillis())
+                            .build()
+                        ctx.getSystemService(NotificationManager::class.java)
+                            .notify((profile.id + a.type).hashCode() and 0x7fffffff, n)
+                        true
                     } catch (e: Exception) {
-                        Log.w(TAG, "root cmd failed", e)
+                        Log.w(TAG, "notify failed", e)
                         false
                     }
                 }
-            }.start()
+
+                Actions.ROOT -> if (a.value.isNotBlank()) {
+                    val cmd = Vars.resolve(a.value, vars)
+                    Thread {
+                        retry(attempts, "root", profile.name) {
+                            try {
+                                val out = RootBridge.execute(cmd)
+                                EventLog.push("[${profile.name}] root -> ${out?.trim() ?: "ok"}")
+                                out == null || !out.startsWith("exit=")
+                            } catch (e: Exception) {
+                                Log.w(TAG, "root cmd failed", e)
+                                false
+                            }
+                        }
+                    }.start()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "action ${a.type} failed", e)
         }
     }
 
     /**
      * Runs a shell command in eventsh's own process (Tasker "Run Shell" style).
      * Uses the device's /system/bin/sh. stdout / stderr / exit code are stored
-     * in %STDOUT / %STDERR / %EXIT (RAM vars) and added to the current rule's
-     * variable map so later actions in the same rule can reference them.
+     * in %STDOUT / %STDERR / %EXIT (RAM vars) and added to the current task's
+     * variable map so later actions can reference them.
      */
     private fun runShell(
-        ctx: Context, rule: Rule, cmd: String, vars: MutableMap<String, String>
+        ctx: Context, profile: Profile, cmd: String, vars: MutableMap<String, String>
     ): Boolean {
         return try {
             val p = ProcessBuilder("/system/bin/sh", "-c", cmd).start()
@@ -158,11 +170,11 @@ object Dispatcher {
             vars["STDOUT"] = outS
             vars["STDERR"] = errS
             vars["EXIT"] = code.toString()
-            EventLog.push("[${rule.label}] shell($code) -> ${outS.take(160)}")
+            EventLog.push("[${profile.name}] shell($code) -> ${outS.take(160)}")
             code == 0
         } catch (e: Exception) {
             Log.w(TAG, "shell cmd failed", e)
-            EventLog.push("[${rule.label}] shell FAILED: ${e.message?.take(120) ?: "error"}")
+            EventLog.push("[${profile.name}] shell FAILED: ${e.message?.take(120) ?: "error"}")
             false
         }
     }
@@ -197,7 +209,7 @@ object Dispatcher {
     private fun retry(
         attempts: Int,
         channel: String,
-        rule: Rule,
+        label: String,
         action: (attempt: Int) -> Boolean
     ) {
         var delay = 2000L
@@ -209,7 +221,7 @@ object Dispatcher {
                 false
             }
             if (ok) {
-                if (attempt > 1) EventLog.push("[${rule.label}] $channel ok after retry $attempt")
+                if (attempt > 1) EventLog.push("[$label] $channel ok after retry $attempt")
                 return
             }
             if (attempt < attempts) {
@@ -217,7 +229,7 @@ object Dispatcher {
                 delay *= 2
             }
         }
-        EventLog.push("[${rule.label}] $channel FAILED after $attempts attempts")
+        EventLog.push("[$label] $channel FAILED after $attempts attempts")
     }
 
     /**
