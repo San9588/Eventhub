@@ -199,7 +199,8 @@ object ActionEditor {
                             },
                             onRemove = {
                                 terms.removeAt(tIdx)
-                                joins.removeAtOrNull((tIdx - 1).coerceAtLeast(0))
+                                val ji = (tIdx - 1).coerceAtLeast(0)
+                                if (ji < joins.size) joins.removeAt(ji)
                                 while (joins.size >= terms.size && joins.isNotEmpty()) joins.removeAt(joins.lastIndex)
                                 emit()
                                 rebuild()
