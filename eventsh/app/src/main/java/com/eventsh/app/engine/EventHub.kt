@@ -58,6 +58,7 @@ object EventHub {
     fun register(ctx: Context) {
         context = ctx.applicationContext
         syncCustomActions(context!!)
+        Watchers.resync(context!!)
     }
 
     /** Re-register after rule edits so new custom event actions take effect. */
@@ -65,6 +66,7 @@ object EventHub {
         val c = ctx.applicationContext
         context = c
         syncCustomActions(c)
+        Watchers.resync(c)
     }
 
     fun unregister(ctx: Context) {
@@ -81,7 +83,7 @@ object EventHub {
     }
 
     fun fireDirect(ctx: Context, event: String, data: Map<String, String>) {
-        val rules = RuleStore.load(ctx).filter { r ->
+        val rules = RuleStore.cached(ctx).filter { r ->
             r.enabled && (
                 r.hasEvent(event) ||
                     // app-only / var-only rules: driven by synthetic state events
