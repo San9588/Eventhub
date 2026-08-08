@@ -2,8 +2,13 @@ package com.eventsh.app
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipData
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.DragEvent
+import android.view.DragShadowBuilder
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -34,6 +39,32 @@ class TaskActivity : Activity() {
     private lateinit var rtEt: EditText
     private lateinit var enSwitch: Switch
     private lateinit var actBox: LinearLayout
+    private var scroll: ScrollView? = null
+
+    // long-press drag-and-drop reorder state
+    private var dragIndex = -1
+    private var lastDragY = 0f
+    private var dragActive = false
+    private val dragHandler = Handler(Looper.getMainLooper())
+    private val dragScroll = object : Runnable {
+        override fun run() {
+            if (!dragActive) return
+            val sv = scroll ?: return
+            val loc = IntArray(2)
+            actBox.getLocationOnScreen(loc)
+            val gy = loc[1] + lastDragY
+            val rect = android.graphics.Rect()
+            sv.getGlobalVisibleRect(rect)
+            val zone = dp(70f)
+            val delta = when {
+                gy < rect.top + zone -> -dp(28f)
+                gy > rect.bottom - zone -> dp(28f)
+                else -> 0
+            }
+            if (delta != 0) sv.scrollBy(0, delta)
+            dragHandler.postDelayed(this, 16L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,6 +116,7 @@ class TaskActivity : Activity() {
 
     private fun buildBody(): View {
         val scroll = ScrollView(this).apply { setBackgroundColor(C.bg) }
+        this.scroll = scroll
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12f), dp(4f), dp(12f), dp(16f))
@@ -114,7 +146,7 @@ class TaskActivity : Activity() {
         ll.addView(ActionEditor.sectionLabel(this, "FAILURE"))
         ll.addView(rtEt)
 
-        ll.addView(ActionEditor.sectionLabel(this, "ACTIONS (tap row = edit; ⇈▲▼⇊ move; ⇅ jump to position)"))
+        ll.addView(ActionEditor.sectionLabel(this, "ACTIONS (tap row = edit; long-press + drag = reorder)"))
         actBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         refreshActs()
         ll.addView(actBox)
@@ -138,19 +170,9 @@ class TaskActivity : Activity() {
             )
         } else {
             for (i in actions.indices) {
-                val a = actions[i]
-                val idx = i
-                val condLine = a.condTerms()?.let { (t, j) -> CondSpec.summary(t, j) }
-                val text = "${a.label()}  ${a.summary()}" +
-                    (if (condLine.isNullOrBlank()) "" else "   [IF $condLine]")
-                val row = ActionEditor.ctxRow(this, text, C.text) {
-                    ActionEditor.actionDialog(
-                        this, a,
-                        onSave = { na -> actions[idx] = na; refreshActs() },
-                        onRemove = { actions.removeAt(idx); refreshActs() }
-                    )
-                }
-                actBox.addView(reorderRow(row, idx))
+                val row = actionRow(i)
+                row.tag = i
+                actBox.addView(row)
             }
         }
         actBox.addView(ActionEditor.ctxRow(this, "+ ADD ACTION", C.accent) {
@@ -161,77 +183,115 @@ class TaskActivity : Activity() {
                 )
             }
         })
+        setupDragListener()
     }
 
-    /**
-     * Wraps an action row with reorder controls:
-     *  - ⇈ / ⇊ jump to the very first / last position
-     *  - ▲ / ▼ nudge up / down one step
-     *  - ⇅ opens a "move to position" picker for long jumps
-     */
-    private fun reorderRow(row: View, index: Int): View {
+    /** Builds one action tile: order number on the left, content, drag grip. */
+    private fun actionRow(i: Int): View {
+        val a = actions[i]
+        val condLine = a.condTerms()?.let { (t, j) -> CondSpec.summary(t, j) }
+        val labelPrefix = if (a.label.isBlank()) "" else "{${a.label}}  "
+        val text = "$labelPrefix${a.typeLabel()}  ${a.summary()}" +
+            (if (condLine.isNullOrBlank()) "" else "   [IF $condLine]")
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(2f), 0, dp(2f))
+            background = UI.rounded(C.card, 10f, C.border, 1f)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            isClickable = true
+            isLongClickable = true
+            setOnClickListener {
+                ActionEditor.actionDialog(
+                    this@TaskActivity, a,
+                    onSave = { na -> actions[i] = na; refreshActs() },
+                    onRemove = { actions.removeAt(i); refreshActs() }
+                )
+            }
+            setOnLongClickListener { v ->
+                dragIndex = i
+                dragActive = true
+                lastDragY = 0f
+                val ok = v.startDragAndDrop(
+                    ClipData.newPlainText("reorder", ""),
+                    DragShadowBuilder(v),
+                    i,
+                    0
+                )
+                if (!ok) {
+                    dragActive = false
+                    dragIndex = -1
+                }
+                true
+            }
         }
-        val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        wrap.addView(row, lp)
-        wrap.addView(reorderBtn("⇈", index, 0))
-        wrap.addView(reorderBtn("▲", index, index - 1))
-        wrap.addView(reorderBtn("▼", index, index + 1))
-        wrap.addView(reorderBtn("⇊", index, actions.lastIndex))
-        wrap.addView(moveBtn(index))
+        wrap.addView(
+            UI.text(this, "${i + 1}.", 15f, C.accent, bold = true),
+            LinearLayout.LayoutParams(dp(34f), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(6f)
+            }
+        )
+        wrap.addView(
+            UI.text(this, text, 15f, C.text),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        wrap.addView(UI.text(this, "≡", 18f, C.hint))
         return wrap
     }
 
-    private fun reorderBtn(symbol: String, from: Int, to: Int): TextView =
-        TextView(this).apply {
-            text = symbol
-            textSize = 13f
-            setTextColor(C.accent)
-            gravity = Gravity.CENTER
-            setPadding(dp(4f), dp(8f), dp(4f), dp(8f))
-            isClickable = true
-            setOnClickListener {
-                if (to in actions.indices) {
-                    val moved = actions.removeAt(from)
-                    actions.add(to, moved)
-                    refreshActs()
+    /** Rebuilds rows in place as the dragged tile crosses boundaries. */
+    private fun setupDragListener() {
+        actBox.setOnDragListener { _, e ->
+            when (e.action) {
+                DragEvent.ACTION_DRAG_STARTED -> {
+                    dragIndex = (e.localState as? Int) ?: -1
+                    true
                 }
+                DragEvent.ACTION_DRAG_LOCATION -> {
+                    lastDragY = e.y
+                    if (!dragActive) {
+                        dragActive = true
+                        dragHandler.post(dragScroll)
+                    }
+                    val t = dropTargetFor(e.y)
+                    if (t != dragIndex && dragIndex in actions.indices) {
+                        val newIdx = if (t > dragIndex) t - 1 else t
+                        reorder(dragIndex, t)
+                        dragIndex = newIdx
+                        refreshActs()
+                    }
+                    true
+                }
+                DragEvent.ACTION_DRAG_DROP -> true
+                DragEvent.ACTION_DRAG_ENDED -> {
+                    dragActive = false
+                    dragHandler.removeCallbacks(dragScroll)
+                    dragIndex = -1
+                    true
+                }
+                else -> true
             }
         }
-
-    /** Opens a picker showing every action numbered; tapping a target moves there. */
-    private fun moveBtn(index: Int): TextView =
-        TextView(this).apply {
-            text = "⇅"
-            textSize = 13f
-            setTextColor(C.warning)
-            gravity = Gravity.CENTER
-            setPadding(dp(4f), dp(8f), dp(4f), dp(8f))
-            isClickable = true
-            setOnClickListener { moveDialog(index) }
-        }
-
-    private fun moveDialog(current: Int) {
-        val labels = actions.mapIndexed { i, a -> "${i + 1}. ${a.label()}  ${a.summary()}" }.toTypedArray()
-        var dialog: AlertDialog? = null
-        val builder = AlertDialog.Builder(this)
-            .setTitle("MOVE ACTION TO")
-            .setSingleChoiceItems(labels, current) { _, which ->
-                moveTo(current, which)
-                dialog?.dismiss()
-            }
-            .setNegativeButton("CANCEL", null)
-        dialog = builder.show()
     }
 
-    private fun moveTo(from: Int, to: Int) {
-        if (from == to || to !in actions.indices) return
+    /** Insertion index for a drop at [y] (actBox-local): before the middle of a tile. */
+    private fun dropTargetFor(y: Float): Int {
+        var acc = 0f
+        for (i in 0 until actBox.childCount) {
+            val c = actBox.getChildAt(i)
+            val idx = c.tag as? Int ?: continue
+            if (idx !in actions.indices) continue
+            val h = c.height
+            if (y < acc + h / 2f) return idx
+            acc += h
+        }
+        return actions.size
+    }
+
+    /** Moves the action at [from] to the insertion index [to] (0..size). */
+    private fun reorder(from: Int, to: Int) {
+        if (to < 0 || to > actions.size || to == from) return
         val moved = actions.removeAt(from)
-        actions.add(to, moved)
-        refreshActs()
+        actions.add(if (to > from) to - 1 else to, moved)
     }
 
     private fun buildBottomBar(): View {

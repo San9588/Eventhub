@@ -457,12 +457,14 @@ class MainActivity : Activity() {
                 Actions.SCRIPT, Actions.SHELL, Actions.ROOT -> R.drawable.ic_terminal
                 Actions.INTENT -> R.drawable.ic_send
                 Actions.NOTIFY -> R.drawable.ic_notify
-                Actions.VAR_SET, Actions.VAR_SPLIT, Actions.VAR_JOIN, Actions.VAR_QUERY -> R.drawable.ic_var
+                Actions.VAR_SET, Actions.VAR_SPLIT, Actions.VAR_JOIN, Actions.VAR_QUERY,
+                Actions.ARRAY_SET, Actions.ARRAY_PUSH, Actions.ARRAY_PROCESS, Actions.ARRAY_POP, Actions.ARRAY_CLEAR -> R.drawable.ic_var
                 Actions.IF, Actions.ELSE, Actions.END_IF, Actions.FOR, Actions.END_FOR -> R.drawable.ic_list
                 else -> R.drawable.ic_settings
             }
             val cond = a.condTerms()?.let { (t, j) -> CondSpec.summary(t, j) }
-            out += icon to ("${a.label()}  ${a.summary()}" +
+            val labelPrefix = if (a.label.isBlank()) "" else "{${a.label}}  "
+            out += icon to ("$labelPrefix${a.typeLabel()}  ${a.summary()}" +
                 (if (cond.isNullOrBlank()) "" else "   [IF $cond]"))
         }
         return out

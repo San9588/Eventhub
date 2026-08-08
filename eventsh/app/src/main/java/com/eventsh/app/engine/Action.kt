@@ -11,11 +11,13 @@ data class Action(
     val value: String = "",
     val extra: String = "",
     val extra2: String = "",
-    val cond: String = ""
+    val cond: String = "",
+    /** Optional user label; Goto actions can jump to an action by label. */
+    val label: String = ""
 ) {
     /** Parsed If-guard terms + connectors, or null when the action has none. */
     fun condTerms(): Pair<List<CondTerm>, List<String>>? = CondSpec.parse(cond)
-    fun label(): String = Actions.label(type)
+    fun typeLabel(): String = Actions.label(type)
 
     fun summary(): String = when (type) {
         Actions.SCRIPT -> "Run ${value.ifBlank { "(no task)" }}"
@@ -29,6 +31,11 @@ data class Action(
         Actions.VAR_SPLIT -> "Split %$value by '${extra.ifBlank { "," }}'"
         Actions.VAR_JOIN -> "Join %${value}1.." + (if (extra.isBlank()) "" else "  joiner: $extra")
         Actions.VAR_QUERY -> "Query %$value" + (if (extra.isBlank()) "" else "  -> %$extra")
+        Actions.ARRAY_SET -> "Set %$value = ${extra.ifBlank { "(values)" }}"
+        Actions.ARRAY_PUSH -> "Push into %$value" + (if (extra.isBlank()) "" else ": ${extra.take(40)}")
+        Actions.ARRAY_PROCESS -> "Process %$value" + (if (extra.isBlank()) "" else "  (${extra})")
+        Actions.ARRAY_POP -> "Pop %$value" + (if (extra2.isBlank()) "" else "  -> %$extra2")
+        Actions.ARRAY_CLEAR -> "Clear %$value"
         Actions.IF -> "If ${value.ifBlank { "(condition)" }}"
         Actions.ELSE -> "Else"
         Actions.END_IF -> "End If"
@@ -56,7 +63,6 @@ data class Action(
         Actions.DISPLAY_OFF -> "Display Off"
         Actions.ROTATE_ON -> "Auto-Rotate On"
         Actions.ROTATE_OFF -> "Auto-Rotate Off"
-        Actions.STOP -> "Stop this task"
         Actions.TASK_RUN -> "Run task ${value.ifBlank { "(task)" }}"
         Actions.TASK_STOP -> "Stop task ${value.ifBlank { "(task)" }}"
         Actions.TASK_ENABLE -> "Enable task ${value.ifBlank { "(task)" }}"
@@ -73,6 +79,7 @@ data class Action(
         if (extra.isNotBlank()) put("extra", extra)
         if (extra2.isNotBlank()) put("extra2", extra2)
         if (cond.isNotBlank()) put("cond", cond)
+        if (label.isNotBlank()) put("label", label)
     }
 
     companion object {
@@ -82,7 +89,8 @@ data class Action(
                 o.optString("value"),
                 o.optString("extra"),
                 o.optString("extra2"),
-                o.optString("cond")
+                o.optString("cond"),
+                o.optString("label")
             )
     }
 }
@@ -201,6 +209,12 @@ object Actions {
     const val VAR_JOIN = "var_join"
     const val VAR_QUERY = "var_query"
 
+    const val ARRAY_SET = "array_set"
+    const val ARRAY_PUSH = "array_push"
+    const val ARRAY_PROCESS = "array_process"
+    const val ARRAY_POP = "array_pop"
+    const val ARRAY_CLEAR = "array_clear"
+
     const val IF = "if"
     const val ELSE = "else"
     const val END_IF = "end_if"
@@ -226,7 +240,6 @@ object Actions {
     const val ROTATE_ON = "rotate_on"
     const val ROTATE_OFF = "rotate_off"
 
-    const val STOP = "stop"
     const val TASK_RUN = "task_run"
     const val TASK_STOP = "task_stop"
     const val TASK_ENABLE = "task_enable"
@@ -247,6 +260,11 @@ object Actions {
         Def(VAR_SPLIT, "Variable Split", "VARIABLE"),
         Def(VAR_JOIN, "Variable Join", "VARIABLE"),
         Def(VAR_QUERY, "Variable Query", "VARIABLE"),
+        Def(ARRAY_SET, "Array Set", "VARIABLE"),
+        Def(ARRAY_PUSH, "Array Push", "VARIABLE"),
+        Def(ARRAY_PROCESS, "Array Process", "VARIABLE"),
+        Def(ARRAY_POP, "Array Pop", "VARIABLE"),
+        Def(ARRAY_CLEAR, "Array Clear", "VARIABLE"),
         Def(IF, "If", "FLOW"),
         Def(ELSE, "Else", "FLOW"),
         Def(END_IF, "End If", "FLOW"),
@@ -268,7 +286,6 @@ object Actions {
         Def(DISPLAY_OFF, "Display Off", "SYSTEM"),
         Def(ROTATE_ON, "Auto-Rotate On", "SYSTEM"),
         Def(ROTATE_OFF, "Auto-Rotate Off", "SYSTEM"),
-        Def(STOP, "Stop Task", "TASKER"),
         Def(TASK_RUN, "Perform Task", "TASK"),
         Def(TASK_STOP, "Task Stop", "TASK"),
         Def(TASK_ENABLE, "Task Enable", "TASK"),
@@ -285,8 +302,7 @@ object Actions {
     fun noParams(type: String): Boolean = when (type) {
         ELSE, END_IF, END_FOR,
         WIFI_ON, WIFI_OFF, BT_ON, BT_OFF, DATA_ON, DATA_OFF,
-        DISPLAY_ON, DISPLAY_OFF, ROTATE_ON, ROTATE_OFF,
-        STOP -> true
+        DISPLAY_ON, DISPLAY_OFF, ROTATE_ON, ROTATE_OFF -> true
         else -> false
     }
 

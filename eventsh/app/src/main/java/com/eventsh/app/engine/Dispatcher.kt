@@ -128,11 +128,14 @@ object Dispatcher {
                     }
                 }
                 Actions.GOTO -> {
-                    val target = Vars.resolve(a.value, vars).trim().toIntOrNull()
-                    if (target != null && target in 1..actions.size) {
-                        pc = target - 1
+                    val raw = Vars.resolve(a.value, vars).trim()
+                    val num = raw.toIntOrNull()
+                    val target = if (num != null && num in 1..actions.size) num - 1
+                    else actions.indexOfFirst { it.label.equals(raw, true) && it.label.isNotBlank() }
+                    if (target >= 0) {
+                        pc = target
                         forStack.clear()
-                        EventLog.push("[${profile.name}] goto action $target")
+                        EventLog.push("[${profile.name}] goto $raw")
                     } else {
                         pc++
                     }
@@ -244,11 +247,19 @@ object Dispatcher {
     }
 
     /** Resolves a For loop's value list: "1..5", "a,b,c" or an array %var. */
-    private fun loopValues(a: Action, vars: Map<String, String>): List<String> {
-        val raw = a.value.trim()
+    private fun loopValues(a: Action, vars: Map<String, String>): List<String> =
+        parseValueList(a.value, vars)
+
+    /**
+     * Parses a value spec into a list. Supports "1..5" (range, forward or
+     * backward), "a,b,c" (comma list) and "%arr" (1-based array elements).
+     * %VAR% references inside a plain spec are resolved first.
+     */
+    private fun parseValueList(spec: String, vars: Map<String, String>): List<String> {
+        val raw = spec.trim()
         if (raw.isBlank()) return emptyList()
         if (raw.startsWith("%")) {
-            val base = raw.removePrefix("%")
+            val base = raw.removePrefix("%").trim()
             val out = mutableListOf<String>()
             var i = 1
             while (out.size < 1000) {
@@ -259,8 +270,8 @@ object Dispatcher {
             }
             return out
         }
-        val spec = Vars.resolve(raw, vars).trim()
-        val range = Regex("^(-?\\d+)\\.\\.(-?\\d+)$").find(spec)
+        val resolved = Vars.resolve(raw, vars).trim()
+        val range = Regex("^(-?\\d+)\\.\\.(-?\\d+)$").find(resolved)
         if (range != null) {
             val from = range.groupValues[1].toInt()
             val to = range.groupValues[2].toInt()
@@ -275,7 +286,40 @@ object Dispatcher {
             }
             return out
         }
-        return spec.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        return resolved.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    /** Reads a 1-based array %name1..%nameN (stops at the first gap). */
+    private fun readArray(ctx: Context, vars: Map<String, String>, name: String): List<String> {
+        val out = mutableListOf<String>()
+        var i = 1
+        while (i <= 10000) {
+            val v = vars[name + i] ?: UserVars.get(ctx, name + i) ?: break
+            out.add(v)
+            i++
+        }
+        return out
+    }
+
+    /** Writes a 1-based array, keeps the base var in sync and clears leftovers. */
+    private fun writeArray(ctx: Context, vars: MutableMap<String, String>, name: String, list: List<String>) {
+        list.forEachIndexed { i, v ->
+            val k = name + (i + 1)
+            UserVars.set(ctx, k, v)
+            vars[k] = v
+        }
+        var i = list.size + 1
+        while (i <= list.size + 1000) {
+            val k = name + i
+            val inVars = vars.remove(k)
+            val inDisk = UserVars.get(ctx, k)
+            if (inVars == null && inDisk == null) break
+            if (inDisk != null) UserVars.remove(ctx, k)
+            i++
+        }
+        val base = list.joinToString(",")
+        UserVars.set(ctx, name, base)
+        vars[name] = base
     }
 
     private fun execute(
@@ -361,7 +405,7 @@ object Dispatcher {
                     val append = a.extra2.equals("append", true)
                     if (name.isNotBlank()) {
                         val cur = UserVars.get(ctx, name) ?: vars[name]
-                        val result = if (append) (cur ?: "") + valExpr else valExpr
+                        val result = if (append) (cur ?: "") + valExpr else (MathExpr.tryEval(valExpr) ?: valExpr)
                         UserVars.set(ctx, name, result)
                         vars[name] = result
                         EventLog.push("[${profile.name}] var %$name = $result")
@@ -415,6 +459,91 @@ object Dispatcher {
                         EventLog.push("[${profile.name}] query %$name -> %$target")
                     } else {
                         EventLog.push("[${profile.name}] %$name = ${v ?: "(unset)"}")
+                    }
+                }
+
+                Actions.ARRAY_SET -> {
+                    val name = Vars.resolve(a.value, vars).trim().removePrefix("%")
+                    if (name.isNotBlank()) {
+                        val list = parseValueList(a.extra, vars)
+                        writeArray(ctx, vars, name, list)
+                        EventLog.push("[${profile.name}] array %$name set (${list.size})")
+                    }
+                }
+
+                Actions.ARRAY_PUSH -> {
+                    val name = Vars.resolve(a.value, vars).trim().removePrefix("%")
+                    if (name.isNotBlank()) {
+                        val cur = readArray(ctx, vars, name).toMutableList()
+                        val added = parseValueList(a.extra, vars)
+                        cur.addAll(added)
+                        writeArray(ctx, vars, name, cur)
+                        EventLog.push("[${profile.name}] array %$name push +${added.size} (${cur.size})")
+                    }
+                }
+
+                Actions.ARRAY_PROCESS -> {
+                    val name = Vars.resolve(a.value, vars).trim().removePrefix("%")
+                    val op = Vars.resolve(a.extra, vars).trim().lowercase()
+                    if (name.isNotBlank() && op.isNotBlank()) {
+                        val cur = readArray(ctx, vars, name)
+                        val out = when (op) {
+                            "reverse" -> cur.reversed()
+                            "sort" -> cur.sorted()
+                            "sort desc", "sortdesc" -> cur.sortedDescending()
+                            "unique" -> LinkedHashSet(cur).toList()
+                            "upper" -> cur.map { it.uppercase() }
+                            "lower" -> cur.map { it.lowercase() }
+                            "trim" -> cur.map { it.trim() }
+                            else -> null
+                        }
+                        if (out != null) {
+                            writeArray(ctx, vars, name, out)
+                            EventLog.push("[${profile.name}] array %$name $op -> ${out.size}")
+                        } else {
+                            EventLog.push("[${profile.name}] array process: unknown op '$op' (reverse|sort|sort desc|unique|upper|lower|trim)")
+                        }
+                    }
+                }
+
+                Actions.ARRAY_POP -> {
+                    val name = Vars.resolve(a.value, vars).trim().removePrefix("%")
+                    if (name.isNotBlank()) {
+                        val cur = readArray(ctx, vars, name).toMutableList()
+                        val idx = Vars.resolve(a.extra, vars).trim().toIntOrNull()
+                        val popped = if (cur.isEmpty()) null
+                        else if (idx == null) cur.removeAt(cur.lastIndex)
+                        else if (idx in 1..cur.size) cur.removeAt(idx - 1)
+                        else null
+                        if (popped != null) {
+                            writeArray(ctx, vars, name, cur)
+                            val target = Vars.resolve(a.extra2, vars).trim().removePrefix("%")
+                            if (target.isNotBlank()) {
+                                UserVars.set(ctx, target, popped)
+                                vars[target] = popped
+                            }
+                            EventLog.push("[${profile.name}] array %$name popped '$popped' (${cur.size} left)")
+                        } else {
+                            EventLog.push("[${profile.name}] array %$name pop: empty or bad index")
+                        }
+                    }
+                }
+
+                Actions.ARRAY_CLEAR -> {
+                    val name = Vars.resolve(a.value, vars).trim().removePrefix("%")
+                    if (name.isNotBlank()) {
+                        var i = 1
+                        while (i <= 10000) {
+                            val k = name + i
+                            val inVars = vars.remove(k)
+                            val inDisk = UserVars.get(ctx, k)
+                            if (inVars == null && inDisk == null) break
+                            if (inDisk != null) UserVars.remove(ctx, k)
+                            i++
+                        }
+                        UserVars.remove(ctx, name)
+                        vars.remove(name)
+                        EventLog.push("[${profile.name}] array %$name cleared")
                     }
                 }
 
@@ -492,11 +621,6 @@ object Dispatcher {
                     }
                 }
 
-                Actions.STOP -> {
-                    stopFlags[task.id]?.set(true)
-                    EventLog.push("[${profile.name}] task stopped by Stop action")
-                }
-
                 Actions.TASK_RUN -> if (a.value.isNotBlank()) {
                     val name = Vars.resolve(a.value, vars)
                     val t = findTask(ctx, name)
@@ -514,14 +638,19 @@ object Dispatcher {
                     }
                 }
 
-                Actions.TASK_STOP -> if (a.value.isNotBlank()) {
-                    val name = Vars.resolve(a.value, vars)
-                    val t = findTask(ctx, name)
-                    if (t != null) {
-                        stopFlags[t.id]?.set(true)
-                        EventLog.push("[${profile.name}] stop requested for task '${t.name}'")
+                Actions.TASK_STOP -> {
+                    val name = Vars.resolve(a.value, vars).trim()
+                    if (name.isBlank()) {
+                        stopFlags[task.id]?.set(true)
+                        EventLog.push("[${profile.name}] current task stopped by Task Stop")
                     } else {
-                        EventLog.push("[${profile.name}] task '$name' not found")
+                        val t = findTask(ctx, name)
+                        if (t != null) {
+                            stopFlags[t.id]?.set(true)
+                            EventLog.push("[${profile.name}] stop requested for task '${t.name}'")
+                        } else {
+                            EventLog.push("[${profile.name}] task '$name' not found")
+                        }
                     }
                 }
 

@@ -20,6 +20,7 @@ import com.eventsh.app.engine.Actions
 import com.eventsh.app.engine.CondSpec
 import com.eventsh.app.engine.CondTerm
 import com.eventsh.app.engine.EventLog
+import com.eventsh.app.engine.Store
 import com.eventsh.app.engine.UserVars
 import com.eventsh.app.ui.C
 import com.eventsh.app.ui.UI
@@ -90,15 +91,20 @@ object ActionEditor {
         Actions.INTENT -> Triple("broadcast action (com.pkg.ACTION)", "extras  key:value (per line | or ;)", "package target (optional)")
         Actions.NOTIFY -> Triple("notify text (%VAR% ok)", null, null)
         Actions.ROOT -> Triple("root command", null, null)
-        Actions.VAR_SET -> Triple("variable name", "value to set (%VAR% ok)", null)
+        Actions.VAR_SET -> Triple("variable name", "value to set (math ok, %VAR% ok)", null)
         Actions.VAR_SPLIT -> Triple("variable name", "splitter (default ,)", null)
         Actions.VAR_JOIN -> Triple("variable base name (%A1, %A2...)", "joiner (default ,)", "max parts (optional)")
         Actions.VAR_QUERY -> Triple("variable to query", "store result in variable", "default if unset")
+        Actions.ARRAY_SET -> Triple("array name (e.g. arr)", "values: a,b,c | 1..5 | %otherarr", null)
+        Actions.ARRAY_PUSH -> Triple("array name", "element(s) to add (a,b,c)", null)
+        Actions.ARRAY_PROCESS -> Triple("array name", "op: reverse | sort | sort desc | unique | upper | lower | trim", null)
+        Actions.ARRAY_POP -> Triple("array name", "index to pop (blank = last)", "store popped value in variable")
+        Actions.ARRAY_CLEAR -> Triple("array name", null, null)
         Actions.IF -> Triple("condition: %var = x | %var > 5 | %var ~ *foo*", null, null)
         Actions.FOR -> Triple("values: 1..5 | a,b,c | %arr", "loop variable (default %loop)", null)
         Actions.WAIT -> Triple("seconds to wait", null, null)
         Actions.WAIT_UNTIL -> Triple("condition: %var = x | %var > 5", "timeout seconds (default 30)", null)
-        Actions.GOTO -> Triple("action number to jump to", null, null)
+        Actions.GOTO -> Triple("action number or label", null, null)
         Actions.CANCEL_ALARM -> Triple("alarm label to cancel (blank = all)", null, null)
         Actions.ALARM_VOLUME -> Triple("alarm volume 0-15", null, null)
         Actions.TASK_RUN, Actions.TASK_STOP, Actions.TASK_ENABLE, Actions.TASK_DISABLE ->
@@ -296,6 +302,36 @@ object ActionEditor {
             .show()
     }
 
+    /** Picker over every task set in the app; taps a task name into the field. */
+    fun taskPick(a: Activity, current: String, onPick: (String) -> Unit) {
+        val tasks = Store.tasks(a)
+        val names = tasks.map { it.name }
+        val cur = current.trim()
+        val curIdx = names.indexOfFirst { it == cur || it.startsWith(cur) }
+        AlertDialog.Builder(a)
+            .setTitle("APP TASKS")
+            .setSingleChoiceItems(names.toTypedArray(), curIdx) { _, which ->
+                onPick(names[which])
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    /** Picker over every profile set in the app; taps a profile name into the field. */
+    fun profilePick(a: Activity, current: String, onPick: (String) -> Unit) {
+        val profiles = Store.profiles(a)
+        val names = profiles.map { it.name }
+        val cur = current.trim()
+        val curIdx = names.indexOfFirst { it == cur || it.startsWith(cur) }
+        AlertDialog.Builder(a)
+            .setTitle("APP PROFILES")
+            .setSingleChoiceItems(names.toTypedArray(), curIdx) { _, which ->
+                onPick(names[which])
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
     fun condTermDialog(
         a: Activity,
         existing: CondTerm,
@@ -383,6 +419,12 @@ object ActionEditor {
         var appendCb: CheckBox? = null
         var suCb: CheckBox? = null
 
+        val labelEt = editText(a, "label (optional, Goto can jump to it)").apply {
+            setText(existing.label)
+        }
+        ll.addView(sectionLabel(a, "LABEL"))
+        ll.addView(labelEt)
+
         if (vh != null) {
             valueEt = editText(a, vh).apply { setText(existing.value) }
             ll.addView(valueEt)
@@ -398,6 +440,32 @@ object ActionEditor {
         if (e2h != null) {
             extra2Et = editText(a, e2h).apply { setText(existing.extra2) }
             ll.addView(extra2Et)
+        }
+        when (type) {
+            Actions.TASK_RUN, Actions.TASK_STOP, Actions.TASK_ENABLE, Actions.TASK_DISABLE -> {
+                ll.addView(ctxRow(a, "PICK TASK FROM APP", C.accent) {
+                    taskPick(a, valueEt?.text?.toString() ?: "") { name ->
+                        valueEt?.setText(name)
+                    }
+                })
+            }
+            Actions.PROFILE_ENABLE, Actions.PROFILE_DISABLE, Actions.PROFILE_DELETE -> {
+                ll.addView(ctxRow(a, "PICK PROFILE FROM APP", C.accent) {
+                    profilePick(a, valueEt?.text?.toString() ?: "") { name ->
+                        valueEt?.setText(name)
+                    }
+                })
+            }
+            Actions.ARRAY_PROCESS -> {
+                ll.addView(ctxRow(a, "PICK PROCESS OP", C.accent) {
+                    val ops = arrayOf("reverse", "sort", "sort desc", "unique", "upper", "lower", "trim")
+                    AlertDialog.Builder(a)
+                        .setTitle("ARRAY PROCESS")
+                        .setItems(ops) { _, which -> extraEt?.setText(ops[which]) }
+                        .setNegativeButton("CANCEL", null)
+                        .show()
+                })
+            }
         }
         if (Actions.needsPrivilege(type) && type != Actions.SET_ALARM) {
             suCb = checkBox(a, "Run with su (root)")
@@ -421,7 +489,7 @@ object ActionEditor {
         }
 
         val d = AlertDialog.Builder(a)
-            .setTitle("ACTION  ${existing.label()}")
+            .setTitle("ACTION  ${existing.typeLabel()}")
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
                 val extra2 = when {
@@ -429,7 +497,16 @@ object ActionEditor {
                     suCb != null -> if (suCb!!.isChecked) "su" else ""
                     else -> extra2Et?.text?.toString() ?: ""
                 }
-                onSave(Action(type, valueEt?.text?.toString() ?: "", extraEt?.text?.toString() ?: "", extra2, condStr))
+                onSave(
+                    Action(
+                        type,
+                        valueEt?.text?.toString() ?: "",
+                        extraEt?.text?.toString() ?: "",
+                        extra2,
+                        condStr,
+                        labelEt.text.toString()
+                    )
+                )
             }
             .setNegativeButton("CANCEL", null)
         if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
@@ -509,7 +586,7 @@ object ActionEditor {
         }
 
         val d = AlertDialog.Builder(a)
-            .setTitle("ACTION  ${existing.label()}")
+            .setTitle("ACTION  ${existing.typeLabel()}")
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
                 val sMin = (snoozeEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 180)
@@ -525,7 +602,8 @@ object ActionEditor {
                         String.format(java.util.Locale.US, "%02d:%02d", hour, minute),
                         label,
                         Actions.alarmEncode(newCfg),
-                        existing.cond
+                        existing.cond,
+                        existing.label
                     )
                 )
             }
