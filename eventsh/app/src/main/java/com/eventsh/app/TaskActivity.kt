@@ -216,14 +216,15 @@ class TaskActivity : Activity() {
 
     private fun moveDialog(current: Int) {
         val labels = actions.mapIndexed { i, a -> "${i + 1}. ${a.label()}  ${a.summary()}" }.toTypedArray()
-        val d = AlertDialog.Builder(this)
+        var dialog: AlertDialog? = null
+        val builder = AlertDialog.Builder(this)
             .setTitle("MOVE ACTION TO")
             .setSingleChoiceItems(labels, current) { _, which ->
                 moveTo(current, which)
-                d.dismiss()
+                dialog?.dismiss()
             }
             .setNegativeButton("CANCEL", null)
-            .show()
+        dialog = builder.show()
     }
 
     private fun moveTo(from: Int, to: Int) {
