@@ -727,7 +727,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
         }
-        scroll.addView(root, ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        scroll.addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         contentFrame.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         // ---- ENGINE
@@ -798,12 +798,6 @@ class MainActivity : Activity() {
 
     private fun matchWrap(): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-
-    private fun sectionLabel(label: String): TextView =
-        UI.text(this, label.uppercase(Locale.US), 12f, C.accent, bold = true).apply {
-            letterSpacing = 0.1f
-            setPadding(dp(10f), dp(14f), dp(10f), dp(6f))
-        }
 
     private fun cardContainer(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
