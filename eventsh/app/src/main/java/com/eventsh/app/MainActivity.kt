@@ -1199,7 +1199,7 @@ class MainActivity : Activity() {
             }
             actBox.addView(ctxRow("+ ADD ACTION", C.accent) {
                 actionTypePick { type ->
-                    actionDialog(Action(type)) { na -> actions.add(na); refreshActs() }
+                    actionDialog(Action(type), onSave = { na -> actions.add(na); refreshActs() })
                 }
             })
         }
@@ -1294,7 +1294,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12f), dp(8f), dp(12f), dp(4f))
             addView(search)
-            addView(lv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)).apply {
+            addView(lv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360f)).apply {
                 topMargin = dp(6f)
             })
         }
