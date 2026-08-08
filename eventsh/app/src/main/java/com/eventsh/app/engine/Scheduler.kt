@@ -24,9 +24,9 @@ object Scheduler {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pi = fireIntent(ctx, rule)
         if (rule.isOneShotTimer) {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, rule.atEpoch, pi)
+            setAlarm(am, rule.atEpoch, pi)
         } else if (rule.isDailyTimer) {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextDaily(rule.daily), pi)
+            setAlarm(am, nextDaily(rule.daily), pi)
         }
     }
 
@@ -35,7 +35,20 @@ object Scheduler {
         val tc = rule.timeCtx ?: return
         val next = nextCtxTrigger(tc, rule.dayCtx, System.currentTimeMillis())
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, fireIntent(ctx, rule))
+        setAlarm(am, next, fireIntent(ctx, rule))
+    }
+
+    /**
+     * Requests an exact alarm but degrades to an inexact (but idle-tolerant)
+     * alarm when SCHEDULE_EXACT_ALARM is missing or revoked. Scheduling must
+     * never crash the caller - Android 12+ throws SecurityException otherwise.
+     */
+    private fun setAlarm(am: AlarmManager, triggerAt: Long, pi: PendingIntent) {
+        try {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        } catch (e: SecurityException) {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+        }
     }
 
     fun cancel(ctx: Context, rule: Rule) {
