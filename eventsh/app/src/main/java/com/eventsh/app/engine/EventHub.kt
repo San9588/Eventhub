@@ -132,7 +132,7 @@ object EventHub {
         }
         // legacy single summary filter (back-compat with old rules)
         val filter = ev?.filter
-        if (filter.isBlank()) return true
+        if (filter.isNullOrBlank()) return true
         val num = filter.toLongOrNull()
         val value = data["value"]?.toLongOrNull()
         if (num != null && value != null) {
