@@ -12,12 +12,14 @@ data class Task(
     val id: String,
     val name: String,
     val actions: List<Action> = emptyList(),
-    val retries: Int = 0
+    val retries: Int = 0,
+    val enabled: Boolean = true
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
         put("name", name)
         put("retries", retries)
+        put("enabled", enabled)
         val arr = JSONArray()
         actions.forEach { arr.put(it.toJson()) }
         put("actions", arr)
@@ -36,7 +38,8 @@ data class Task(
                 id = o.optString("id", "tk_" + Math.random().toString().take(8)),
                 name = o.optString("name", "TASK"),
                 actions = actions,
-                retries = o.optInt("retries", 0)
+                retries = o.optInt("retries", 0),
+                enabled = o.optBoolean("enabled", true)
             )
         }
     }

@@ -42,6 +42,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".TaskActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <service
             android:name=".service.EventService"
             android:exported="false"

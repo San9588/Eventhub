@@ -14,8 +14,6 @@ import android.os.Bundle
 import android.os.Debug
 import android.os.Handler
 import android.os.Looper
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -34,6 +32,7 @@ import android.widget.TextView
 import com.eventsh.app.engine.Action
 import com.eventsh.app.engine.Actions
 import com.eventsh.app.engine.AppCtx
+import com.eventsh.app.engine.CondSpec
 import com.eventsh.app.engine.Ctx
 import com.eventsh.app.engine.DayCtx
 import com.eventsh.app.engine.Dispatcher
@@ -338,7 +337,7 @@ class MainActivity : Activity() {
         varList.adapter = varAdapter
         logList.adapter = logAdapter
         profileList.setOnItemClickListener { _, _, pos, _ -> toggleExpand(pos) }
-        taskList.setOnItemClickListener { _, _, pos, _ -> if (pos in tasks.indices) taskDialog(tasks[pos]) }
+        taskList.setOnItemClickListener { _, _, pos, _ -> if (pos in tasks.indices) openTaskEditor(tasks[pos]) }
         varList.setOnItemClickListener { _, _, pos, _ -> if (pos in userVars.indices) varDialog(userVars[pos]) }
 
         contentFrame.addView(profileList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -401,7 +400,7 @@ class MainActivity : Activity() {
     private fun onFabAdd() {
         when (currentTab) {
             TAB_PROFILES -> profileDialog(null)
-            TAB_TASKS -> taskDialog(null)
+            TAB_TASKS -> openTaskEditor(null)
             TAB_VARS -> varDialog(null)
         }
     }
@@ -436,7 +435,9 @@ class MainActivity : Activity() {
                 Actions.IF, Actions.ELSE, Actions.END_IF, Actions.FOR, Actions.END_FOR -> R.drawable.ic_list
                 else -> R.drawable.ic_settings
             }
-            out += icon to "${a.label()}  ${a.summary()}"
+            val cond = a.condTerms()?.let { (t, j) -> CondSpec.summary(t, j) }
+            out += icon to ("${a.label()}  ${a.summary()}" +
+                (if (cond.isNullOrBlank()) "" else "   [IF $cond]"))
         }
         return out
     }
@@ -644,6 +645,7 @@ class MainActivity : Activity() {
         override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
             val t = tasks[pos]
             val usedBy = profiles.count { it.taskId == t.id }
+            val enabled = t.enabled
 
             val card = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -656,11 +658,11 @@ class MainActivity : Activity() {
             }
             val icon = ImageView(this@MainActivity).apply {
                 setImageResource(R.drawable.ic_list)
-                setColorFilter(C.primary)
+                setColorFilter(if (enabled) C.primary else C.disabled)
             }
             header.addView(icon, LinearLayout.LayoutParams(dp(24f), dp(24f)))
             header.addView(
-                UI.text(this@MainActivity, t.name, 16f, C.text, bold = true).apply {
+                UI.text(this@MainActivity, t.name, 16f, if (enabled) C.text else C.textSec, bold = true).apply {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 },
@@ -668,21 +670,21 @@ class MainActivity : Activity() {
                     marginStart = dp(10f)
                 }
             )
-            header.addView(iconButton(R.drawable.ic_edit, C.textSec, { taskDialog(t) }))
+            header.addView(iconButton(R.drawable.ic_edit, C.textSec, { openTaskEditor(t) }))
             card.addView(header)
 
             val acts = taskActionLines(t)
             card.addView(
-                UI.text(this@MainActivity, "${t.actions.size} action(s)  ·  retry ${t.retries}  ·  used by $usedBy profile(s)", 12f, C.hint),
+                UI.text(this@MainActivity, "${t.actions.size} action(s)  ·  retry ${t.retries}  ·  used by $usedBy profile(s)" + (if (enabled) "" else "  ·  DISABLED"), 12f, C.hint),
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(4f)
                 }
             )
             if (acts.isNotEmpty()) {
                 card.addView(UI.vsep(this@MainActivity, dp(6f)))
-                for ((ic, txt) in acts) card.addView(actionRow(ic, txt, C.primary))
+                for ((ic, txt) in acts) card.addView(actionRow(ic, txt, if (enabled) C.primary else C.textSec))
             }
-            card.setOnClickListener { taskDialog(t) }
+            card.setOnClickListener { openTaskEditor(t) }
             return cardWrap(card)
         }
     }
@@ -1170,217 +1172,11 @@ class MainActivity : Activity() {
     }
 
     // ------------------------------------------------------------ task editor
-    private fun taskDialog(existing: Task?) {
-        val nameEt = editText("task name")
-        if (existing != null) nameEt.setText(existing.name)
-        val rtEt = editText("retries on failure (0)")
-        if (existing != null) rtEt.setText(existing.retries.toString())
-
-        val actions = existing?.actions?.toMutableList() ?: mutableListOf()
-        val actBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        fun refreshActs() {
-            actBox.removeAllViews()
-            if (actions.isEmpty()) {
-                actBox.addView(UI.text(this, "(no actions yet - add one)", 14f, C.hint).apply {
-                    setPadding(dp(4f), dp(6f), dp(4f), dp(6f))
-                })
-            } else {
-                for (i in actions.indices) {
-                    val a = actions[i]
-                    val idx = i
-                    actBox.addView(ctxRow("${a.label()}  ${a.summary()}", C.text) {
-                        actionDialog(
-                            a,
-                            onSave = { na -> actions[idx] = na; refreshActs() },
-                            onRemove = { actions.removeAt(idx); refreshActs() }
-                        )
-                    })
-                }
-            }
-            actBox.addView(ctxRow("+ ADD ACTION", C.accent) {
-                actionTypePick { type ->
-                    actionDialog(Action(type), onSave = { na -> actions.add(na); refreshActs() })
-                }
-            })
-        }
-        refreshActs()
-
-        val ll = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(nameEt)
-            addView(sectionLabel("ACTIONS (run in order)"))
-            addView(actBox)
-            addView(sectionLabel("FAILURE"))
-            addView(rtEt)
-        }
-        val scroll = ScrollView(this).apply { addView(ll) }
-
-        val d = AlertDialog.Builder(this)
-            .setTitle(if (existing == null) "NEW TASK" else "EDIT TASK")
-            .setView(scroll)
-            .setPositiveButton("SAVE") { _, _ ->
-                val base = existing ?: Task(id = "tk_" + UUID.randomUUID().toString().take(8), name = "TASK")
-                val newT = base.copy(
-                    name = nameEt.text.toString().trim().ifBlank { "TASK" },
-                    retries = (rtEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 10),
-                    actions = actions
-                )
-                val cur = Store.tasks(this).toMutableList()
-                val i = cur.indexOfFirst { it.id == base.id }
-                if (i >= 0) cur[i] = newT else cur.add(newT)
-                Store.saveTasks(this, cur)
-                refreshScreen()
-            }
-            .setNegativeButton("CANCEL", null)
-        if (existing != null) {
-            d.setNeutralButton("DELETE") { _, _ -> deleteTask(existing) }
-        }
-        d.show()
-    }
-
-    private fun deleteTask(t: Task) {
-        val cur = Store.tasks(this).toMutableList()
-        cur.removeAll { it.id == t.id }
-        Store.saveTasks(this, cur)
-        val ps = Store.profiles(this).map { if (it.taskId == t.id) it.copy(taskId = "") else it }
-        Store.saveProfiles(this, ps)
-        refreshScreen()
-    }
-
-    private fun actionTypePick(onPick: (String) -> Unit) {
-        val defs = Actions.CATALOG
-        val search = editText("search actions... (e.g. var, wifi, for)").apply {
-            setTextColor(C.text)
-            setHintTextColor(C.hint)
-        }
-        val lv = ListView(this).apply {
-            divider = null
-            dividerHeight = 0
-            setSelector(android.R.color.transparent)
-        }
-        var filtered = defs.toList()
-        val adapter = object : BaseAdapter() {
-            override fun getCount() = filtered.size
-            override fun getItem(pos: Int) = filtered[pos]
-            override fun getItemId(pos: Int) = pos.toLong()
-            override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
-                val d = filtered[pos]
-                val row = LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
-                    setBackgroundColor(C.bg)
-                }
-                row.addView(UI.text(this@MainActivity, d.label, 15f, C.text))
-                row.addView(UI.text(this@MainActivity, d.category, 11f, C.hint))
-                return row
-            }
-        }
-        lv.adapter = adapter
-        fun applyQuery(q: String) {
-            filtered = if (q.isBlank()) defs.toList()
-            else defs.filter {
-                it.label.contains(q, true) || it.type.contains(q, true) || it.category.contains(q, true)
-            }
-            adapter.notifyDataSetChanged()
-        }
-        search.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                applyQuery(s?.toString() ?: "")
-            }
+    /** Opens the full-page Task editor; null starts a fresh task. */
+    private fun openTaskEditor(t: Task?) {
+        startActivity(Intent(this, TaskActivity::class.java).apply {
+            if (t != null) putExtra("taskId", t.id)
         })
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12f), dp(8f), dp(12f), dp(4f))
-            addView(search)
-            addView(lv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360f)).apply {
-                topMargin = dp(6f)
-            })
-        }
-        var pickerDialog: AlertDialog? = null
-        pickerDialog = AlertDialog.Builder(this)
-            .setTitle("ADD ACTION (${defs.size})")
-            .setView(box)
-            .setNegativeButton("CANCEL", null)
-            .show()
-        lv.setOnItemClickListener { _, _, pos, _ ->
-            if (pos in filtered.indices) {
-                onPick(filtered[pos].type)
-                pickerDialog?.dismiss()
-            }
-        }
-        applyQuery("")
-    }
-
-    private fun actionFieldHints(type: String): Triple<String?, String?, String?> = when (type) {
-        Actions.SCRIPT -> Triple("termux task name", null, null)
-        Actions.SHELL -> Triple("shell command (sh -c ...)", null, null)
-        Actions.INTENT -> Triple("broadcast action (com.pkg.ACTION)", "extras  key:value (per line | or ;)", "package target (optional)")
-        Actions.NOTIFY -> Triple("notify text (%VAR% ok)", null, null)
-        Actions.ROOT -> Triple("root command", null, null)
-        Actions.VAR_SET -> Triple("variable name", "value to set (%VAR% ok)", null)
-        Actions.VAR_SPLIT -> Triple("variable name", "splitter (default ,)", null)
-        Actions.VAR_JOIN -> Triple("variable base name (%A1, %A2...)", "joiner (default ,)", "max parts (optional)")
-        Actions.VAR_QUERY -> Triple("variable to query", "store result in variable", "default if unset")
-        Actions.IF -> Triple("condition: %var = x | %var > 5 | %var ~ *foo*", null, null)
-        Actions.FOR -> Triple("values: 1..5 | a,b,c | %arr", "loop variable (default %loop)", null)
-        else -> Triple(null, null, null)
-    }
-
-    private fun actionDialog(
-        existing: Action,
-        onSave: (Action) -> Unit,
-        onRemove: (() -> Unit)? = null
-    ) {
-        val type = existing.type
-        val (vh, eh, e2h) = actionFieldHints(type)
-
-        val ll = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        if (Actions.noParams(type)) {
-            ll.addView(
-                UI.text(this, "No parameters needed.\nRuns when the task reaches this step.", 14f, C.textSec).apply {
-                    setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
-                }
-            )
-        }
-
-        var valueEt: EditText? = null
-        var extraEt: EditText? = null
-        var extra2Et: EditText? = null
-        var appendCb: CheckBox? = null
-
-        if (vh != null) {
-            valueEt = editText(vh).apply { setText(existing.value) }
-            ll.addView(valueEt)
-        }
-        if (type == Actions.VAR_SET) {
-            appendCb = checkBox("append to existing value").apply { isChecked = existing.extra2 == "append" }
-            ll.addView(appendCb)
-        }
-        if (eh != null) {
-            extraEt = editText(eh).apply { setText(existing.extra) }
-            ll.addView(extraEt)
-        }
-        if (e2h != null) {
-            extra2Et = editText(e2h).apply { setText(existing.extra2) }
-            ll.addView(extra2Et)
-        }
-
-        val d = AlertDialog.Builder(this)
-            .setTitle("ACTION  ${existing.label()}")
-            .setView(ll)
-            .setPositiveButton("OK") { _, _ ->
-                val extra2 = if (type == Actions.VAR_SET) {
-                    if (appendCb?.isChecked == true) "append" else ""
-                } else {
-                    extra2Et?.text?.toString() ?: ""
-                }
-                onSave(Action(type, valueEt?.text?.toString() ?: "", extraEt?.text?.toString() ?: "", extra2))
-            }
-            .setNegativeButton("CANCEL", null)
-        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-        d.show()
     }
 
     private fun editText(hint: String): EditText = EditText(this).apply {

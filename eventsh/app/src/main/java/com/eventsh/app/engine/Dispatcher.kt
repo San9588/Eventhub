@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Runs a profile's linked Task (its list of actions) when a profile fires.
@@ -22,6 +24,9 @@ object Dispatcher {
 
     const val ACTION_OWN = "com.eventsh.TRIGGER"
     const val CHANNEL_EVENT = "events"
+
+    /** Per-task abort flags: set by Stop / Task Stop, cleared when a task starts. */
+    private val stopFlags = ConcurrentHashMap<String, AtomicBoolean>()
 
     fun ensureChannel(ctx: Context) {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
@@ -57,6 +62,10 @@ object Dispatcher {
         }
 
         val task = Store.tasks(ctx).find { it.id == profile.taskId } ?: return
+        if (!task.enabled) {
+            EventLog.push("[${profile.name}] task '${task.name}' is disabled - skipped")
+            return
+        }
         val attempts = (task.retries + 1).coerceAtLeast(1)
         runActions(ctx, profile, task, vars, attempts, event, summary)
     }
@@ -65,6 +74,8 @@ object Dispatcher {
      * Executes a task's actions in order with If/Else/End If and For/End For
      * control flow. Block commands (IF/ELSE/END_IF/FOR/END_FOR) just move the
      * instruction pointer; every other action is handed to [execute].
+     * Each action also carries its own If guard ([Action.cond]) - when it does
+     * not match the action is skipped and execution continues with the next one.
      */
     private fun runActions(
         ctx: Context,
@@ -73,12 +84,15 @@ object Dispatcher {
         vars: MutableMap<String, String>,
         attempts: Int,
         event: String,
-        summary: String
+        summary: String,
+        depth: Int = 0
     ) {
         val actions = task.actions
         var pc = 0
         val forStack = ArrayDeque<ForFrame>()
+        stopFlags[task.id] = AtomicBoolean(false)
         while (pc < actions.size) {
+            if (stopFlags[task.id]?.get() == true) break
             val a = actions[pc]
             when (a.type) {
                 Actions.IF -> {
@@ -112,11 +126,31 @@ object Dispatcher {
                     }
                 }
                 else -> {
-                    execute(ctx, profile, task, a, vars, attempts, event, summary)
+                    if (guardPasses(ctx, a, vars)) {
+                        execute(ctx, profile, task, a, vars, attempts, event, summary, depth)
+                    }
                     pc++
                 }
             }
         }
+    }
+
+    /** True unless the action defines an If guard that does not match. */
+    private fun guardPasses(ctx: Context, a: Action, vars: MutableMap<String, String>): Boolean {
+        val spec = a.condTerms() ?: return true
+        return CondSpec.matches(ctx, spec.first, spec.second, vars)
+    }
+
+    private fun findTask(ctx: Context, nameOrId: String): Task? {
+        val s = nameOrId.trim()
+        if (s.isBlank()) return null
+        return Store.cachedTasks(ctx).find { it.id == s || it.name == s }
+    }
+
+    private fun findProfile(ctx: Context, nameOrId: String): Profile? {
+        val s = nameOrId.trim()
+        if (s.isBlank()) return null
+        return Store.cachedProfiles(ctx).find { it.id == s || it.name == s }
     }
 
     /**
@@ -235,7 +269,8 @@ object Dispatcher {
         vars: MutableMap<String, String>,
         attempts: Int,
         event: String,
-        summary: String
+        summary: String,
+        depth: Int = 0
     ) {
         try {
             when (a.type) {
@@ -376,10 +411,101 @@ object Dispatcher {
                 Actions.DISPLAY_OFF -> systemToggle(ctx, profile, "input keyevent KEYCODE_POWER", "display off", attempts)
                 Actions.ROTATE_ON -> systemToggle(ctx, profile, "settings put system accelerometer_rotation 1", "auto-rotate on", attempts)
                 Actions.ROTATE_OFF -> systemToggle(ctx, profile, "settings put system accelerometer_rotation 0", "auto-rotate off", attempts)
+
+                Actions.STOP -> {
+                    stopFlags[task.id]?.set(true)
+                    EventLog.push("[${profile.name}] task stopped by Stop action")
+                }
+
+                Actions.TASK_RUN -> if (a.value.isNotBlank()) {
+                    val name = Vars.resolve(a.value, vars)
+                    val t = findTask(ctx, name)
+                    if (t != null) {
+                        if (depth >= 32) {
+                            EventLog.push("[${profile.name}] task run depth limit hit for '${t.name}'")
+                        } else {
+                            retry(attempts, "task", profile.name) {
+                                runActions(ctx, profile, t, vars, attempts, event, summary, depth + 1)
+                                true
+                            }
+                        }
+                    } else {
+                        EventLog.push("[${profile.name}] task '$name' not found")
+                    }
+                }
+
+                Actions.TASK_STOP -> if (a.value.isNotBlank()) {
+                    val name = Vars.resolve(a.value, vars)
+                    val t = findTask(ctx, name)
+                    if (t != null) {
+                        stopFlags[t.id]?.set(true)
+                        EventLog.push("[${profile.name}] stop requested for task '${t.name}'")
+                    } else {
+                        EventLog.push("[${profile.name}] task '$name' not found")
+                    }
+                }
+
+                Actions.TASK_ENABLE, Actions.TASK_DISABLE -> if (a.value.isNotBlank()) {
+                    val on = a.type == Actions.TASK_ENABLE
+                    val name = Vars.resolve(a.value, vars)
+                    val t = findTask(ctx, name)
+                    if (t != null) {
+                        val cur = Store.tasks(ctx).toMutableList()
+                        val i = cur.indexOfFirst { it.id == t.id }
+                        if (i >= 0) {
+                            cur[i] = cur[i].copy(enabled = on)
+                            Store.saveTasks(ctx, cur)
+                        }
+                        EventLog.push("[${profile.name}] task '${t.name}' ${if (on) "enabled" else "disabled"}")
+                    } else {
+                        EventLog.push("[${profile.name}] task '$name' not found")
+                    }
+                }
+
+                Actions.PROFILE_ENABLE, Actions.PROFILE_DISABLE, Actions.PROFILE_DELETE -> {
+                    val name = Vars.resolve(a.value, vars)
+                    val p = findProfile(ctx, name)
+                    if (p != null) {
+                        when (a.type) {
+                            Actions.PROFILE_ENABLE -> {
+                                setProfileEnabled(ctx, p, true)
+                                EventLog.push("[${profile.name}] profile '${p.name}' enabled")
+                            }
+                            Actions.PROFILE_DISABLE -> {
+                                setProfileEnabled(ctx, p, false)
+                                EventLog.push("[${profile.name}] profile '${p.name}' disabled")
+                            }
+                            else -> {
+                                Scheduler.cancel(ctx, p)
+                                val cur = Store.profiles(ctx).toMutableList()
+                                cur.removeAll { it.id == p.id }
+                                Store.saveProfiles(ctx, cur)
+                                EventLog.push("[${profile.name}] profile '${p.name}' deleted")
+                            }
+                        }
+                        EventHub.resync(ctx)
+                    } else {
+                        EventLog.push("[${profile.name}] profile '$name' not found")
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "action ${a.type} failed", e)
         }
+    }
+
+    private fun setProfileEnabled(ctx: Context, p: Profile, on: Boolean) {
+        val cur = Store.profiles(ctx).toMutableList()
+        val i = cur.indexOfFirst { it.id == p.id }
+        if (i < 0) return
+        cur[i] = cur[i].copy(enabled = on)
+        Store.saveProfiles(ctx, cur)
+        if (on && (cur[i].isOneShotTimer || cur[i].isDailyTimer || cur[i].timeCtx != null)) {
+            Scheduler.schedule(ctx, cur[i])
+        } else if (!on) {
+            Scheduler.cancel(ctx, cur[i])
+        }
+        EventHub.resync(ctx)
     }
 
     /**
