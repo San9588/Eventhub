@@ -399,6 +399,13 @@ object Dispatcher {
                     }.start()
                 }
 
+                Actions.FLASH -> {
+                    val text = Vars.resolve(a.value, vars).ifBlank { summary }
+                    val secs = (Vars.resolve(a.extra, vars).toIntOrNull() ?: 0).coerceIn(0, 30)
+                    Flash.show(ctx, text, if (secs > 0) secs * 1000L else 2000L)
+                    EventLog.push("[${profile.name}] flash: ${text.take(80)}")
+                }
+
                 Actions.VAR_SET -> {
                     val name = Vars.resolve(a.value, vars).trim()
                     val valExpr = Vars.resolve(a.extra, vars)

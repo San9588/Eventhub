@@ -85,7 +85,10 @@ class MainActivity : Activity() {
         "file_deleted", "file_moved", "file_attr"
     )
     private val REQ_FILE_PICK = 7002
+    private val REQ_OPEN_BACKUP = 7003
+    private val REQ_CREATE_BACKUP = 7004
     @Volatile private var pendingFilePick: ((String?) -> Unit)? = null
+    @Volatile private var pendingBackupText: String? = null
 
     // data
     private var profiles: List<Profile> = emptyList()
@@ -124,6 +127,9 @@ class MainActivity : Activity() {
     private lateinit var shizukuStatusTv: TextView
     private lateinit var usageStatusTv: TextView
     private lateinit var notifStatusTv: TextView
+    private lateinit var overlayStatusTv: TextView
+    private lateinit var exactStatusTv: TextView
+    private lateinit var battOptStatusTv: TextView
 
     private lateinit var profileAdapter: ProfileAdapter
     private lateinit var taskAdapter: TaskAdapter
@@ -159,6 +165,29 @@ class MainActivity : Activity() {
             pendingFilePick = null
             if (cb != null) {
                 cb(if (resultCode == Activity.RESULT_OK) data?.getStringExtra(FilePickerActivity.RESULT_PATH) else null)
+            }
+        }
+        if (requestCode == REQ_OPEN_BACKUP && resultCode == Activity.RESULT_OK && data?.data != null) {
+            try {
+                val text = contentResolver.openInputStream(data.data!!)
+                    ?.bufferedReader()?.use { it.readText() } ?: ""
+                confirmImport(text)
+            } catch (e: Exception) {
+                EventLog.push("[bak] read backup failed: ${e.message?.take(80) ?: "error"}")
+            }
+        }
+        if (requestCode == REQ_CREATE_BACKUP && resultCode == Activity.RESULT_OK && data?.data != null) {
+            val text = pendingBackupText
+            pendingBackupText = null
+            if (text != null) {
+                try {
+                    contentResolver.openOutputStream(data.data!!)?.use { os ->
+                        os.write(text.toByteArray())
+                    }
+                    EventLog.push("[bak] backup saved to your chosen location")
+                } catch (e: Exception) {
+                    EventLog.push("[bak] save failed: ${e.message?.take(80) ?: "error"}")
+                }
             }
         }
     }
@@ -456,7 +485,7 @@ class MainActivity : Activity() {
             val icon = when (a.type) {
                 Actions.SCRIPT, Actions.SHELL, Actions.ROOT -> R.drawable.ic_terminal
                 Actions.INTENT -> R.drawable.ic_send
-                Actions.NOTIFY -> R.drawable.ic_notify
+                Actions.NOTIFY, Actions.FLASH -> R.drawable.ic_notify
                 Actions.VAR_SET, Actions.VAR_SPLIT, Actions.VAR_JOIN, Actions.VAR_QUERY,
                 Actions.ARRAY_SET, Actions.ARRAY_PUSH, Actions.ARRAY_PROCESS, Actions.ARRAY_POP, Actions.ARRAY_CLEAR -> R.drawable.ic_var
                 Actions.IF, Actions.ELSE, Actions.END_IF, Actions.FOR, Actions.END_FOR -> R.drawable.ic_list
@@ -840,6 +869,28 @@ class MainActivity : Activity() {
         })
         notifStatusTv = notifRow.second
         permCard.addView(notifRow.first, matchWrap())
+        val overlayRow = actionRowContent("Display over other apps", "background Flash popups", {
+            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:$packageName")))
+        })
+        overlayStatusTv = overlayRow.second
+        permCard.addView(overlayRow.first, matchWrap())
+        val exactRow = actionRowContent("Exact alarms", "let alarms fire at the exact time (Android 12+)", {
+            if (Build.VERSION.SDK_INT >= 31) {
+                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    android.net.Uri.parse("package:$packageName")))
+            }
+            handler.postDelayed({ refreshScreen() }, 900)
+        })
+        exactStatusTv = exactRow.second
+        permCard.addView(exactRow.first, matchWrap())
+        val battRow = actionRowContent("Ignore battery optimization", "prevent the OS from killing timers/alarms", {
+            startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                android.net.Uri.parse("package:$packageName")))
+            handler.postDelayed({ refreshScreen() }, 900)
+        })
+        battOptStatusTv = battRow.second
+        permCard.addView(battRow.first, matchWrap())
         val smsRow = actionRowContent("SMS + Phone + Bluetooth", "runtime permissions for events", {
             requestPermissions(arrayOf(
                 android.Manifest.permission.RECEIVE_SMS,
@@ -853,8 +904,8 @@ class MainActivity : Activity() {
         // ---- DATA
         root.addView(sectionLabel("DATA"))
         val dataCard = cardContainer()
-        dataCard.addView(actionRowContent("Export", "backup profiles + tasks to eventsh_backup.json", { exportRules() }).first, matchWrap())
-        dataCard.addView(actionRowContent("Import", "restore profiles + tasks from backup file", { importRules() }).first, matchWrap())
+        dataCard.addView(actionRowContent("Export", "backup profiles + tasks + variables", { exportRules() }).first, matchWrap())
+        dataCard.addView(actionRowContent("Import", "restore profiles + tasks + variables from backup", { importRules() }).first, matchWrap())
         root.addView(dataCard, matchWrap())
 
         // ---- ABOUT
@@ -964,6 +1015,17 @@ class MainActivity : Activity() {
         val notifNeed = Permissions.Need("notif_listener", "Notification access", "", Permissions.Kind.SPECIAL, settingsAction = android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
         notifStatusTv.text = if (notifNeed.granted(this)) "OK" else "SET"
         notifStatusTv.setTextColor(if (notifNeed.granted(this)) C.ok else C.warning)
+        val overlayOk = com.eventsh.app.engine.Flash.canOverlay(this)
+        overlayStatusTv.text = if (overlayOk) "OK" else "SET"
+        overlayStatusTv.setTextColor(if (overlayOk) C.ok else C.warning)
+        val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val exactOk = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+        exactStatusTv.text = if (exactOk) "OK" else "SET"
+        exactStatusTv.setTextColor(if (exactOk) C.ok else C.warning)
+        val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val battOk = pm.isIgnoringBatteryOptimizations(packageName)
+        battOptStatusTv.text = if (battOk) "OK" else "SET"
+        battOptStatusTv.setTextColor(if (battOk) C.ok else C.warning)
         if (::aboutText.isInitialized) {
             aboutText.text = "EVENTSH v0.1.0\n$ramText   $cpuText   battery $battText\nprofiles: ${profiles.count { it.enabled }} armed / ${profiles.size}"
         }
@@ -1033,41 +1095,91 @@ class MainActivity : Activity() {
 
     private fun exportRules() {
         try {
+            val json = com.eventsh.app.engine.Backup.export(this)
+            val pretty = json.toString(2)
             val outDir = getExternalFilesDir(null) ?: filesDir
             val f = File(outDir, "eventsh_backup.json")
-            val out = org.json.JSONObject()
-                .put("profiles", org.json.JSONArray().apply { profiles.forEach { put(it.toJson()) } })
-                .put("tasks", org.json.JSONArray().apply { tasks.forEach { put(it.toJson()) } })
-            f.writeText(out.toString())
-            EventLog.push("[bak] exported ${profiles.size} profile(s) + ${tasks.size} task(s) -> ${f.absolutePath}")
+            f.writeText(pretty)
+            val np = Store.profiles(this).size
+            val nt = Store.tasks(this).size
+            val nv = UserVars.diskEntries(this).size
+            EventLog.push("[bak] exported $np profile(s) + $nt task(s) + $nv var(s)")
+            AlertDialog.Builder(this)
+                .setTitle("BACKUP EXPORTED")
+                .setMessage("$np profiles, $nt tasks, $nv variables\n\n${f.absolutePath}\n\n'SAVE TO...' keeps a copy anywhere (Downloads, Drive, another app) for restore on any device.")
+                .setPositiveButton("SAVE TO...") { _, _ -> saveBackupAs(pretty) }
+                .setNegativeButton("OK", null)
+                .show()
         } catch (e: Exception) {
             EventLog.push("[bak] export FAILED: ${e.message?.take(100) ?: "error"}")
         }
         refreshScreen()
     }
 
-    private fun importRules() {
+    private fun saveBackupAs(content: String) {
+        pendingBackupText = content
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_TITLE, "eventsh_backup.json")
+        }
         try {
-            val outDir = getExternalFilesDir(null) ?: filesDir
-            val f = File(outDir, "eventsh_backup.json")
-            if (!f.exists()) {
-                EventLog.push("[bak] no backup file at ${f.absolutePath}")
-                refreshScreen()
-                return
+            startActivityForResult(intent, REQ_CREATE_BACKUP)
+        } catch (e: Exception) {
+            EventLog.push("[bak] save-as unavailable: ${e.message?.take(80) ?: "error"}")
+        }
+    }
+
+    private fun importRules() {
+        val outDir = getExternalFilesDir(null) ?: filesDir
+        val f = File(outDir, "eventsh_backup.json")
+        if (f.exists()) {
+            try {
+                confirmImport(f.readText())
+            } catch (e: Exception) {
+                EventLog.push("[bak] read backup failed: ${e.message?.take(80) ?: "error"}")
             }
-            val out = org.json.JSONObject(f.readText())
-            val profiles = ArrayList<Profile>()
-            val pArr = out.optJSONArray("profiles")
-            if (pArr != null) for (i in 0 until pArr.length()) profiles.add(Profile.fromJson(pArr.getJSONObject(i)))
-            val tasks = ArrayList<Task>()
-            val tArr = out.optJSONArray("tasks")
-            if (tArr != null) for (i in 0 until tArr.length()) tasks.add(Task.fromJson(tArr.getJSONObject(i)))
-            Store.saveProfiles(this, profiles)
-            Store.saveTasks(this, tasks)
-            Scheduler.rescheduleAll(this)
-            if (isServiceRunning()) EventHub.resync(this)
-            EventLog.push("[bak] imported ${profiles.size} profile(s) + ${tasks.size} task(s)")
+        } else {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain"))
+            }
+            try {
+                startActivityForResult(intent, REQ_OPEN_BACKUP)
+            } catch (e: Exception) {
+                EventLog.push("[bak] no file picker available: ${e.message?.take(80) ?: "error"}")
+            }
+        }
+    }
+
+    private fun confirmImport(raw: String) {
+        val o = com.eventsh.app.engine.Backup.parse(raw)
+        if (o == null) {
+            EventLog.push("[bak] import FAILED: not an eventsh backup file")
             refreshScreen()
+            return
+        }
+        if (com.eventsh.app.engine.Backup.isNewer(o)) {
+            EventLog.push("[bak] warning: backup version ${o.optInt("version")} is newer than this app")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("IMPORT BACKUP")
+            .setMessage("Replace current profiles/tasks/variables, or merge the backup into them?")
+            .setPositiveButton("REPLACE") { _, _ -> doImport(o, com.eventsh.app.engine.Backup.Mode.REPLACE) }
+            .setNeutralButton("MERGE") { _, _ -> doImport(o, com.eventsh.app.engine.Backup.Mode.MERGE) }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    private fun doImport(o: org.json.JSONObject, mode: com.eventsh.app.engine.Backup.Mode) {
+        try {
+            com.eventsh.app.engine.Backup.apply(this, o, mode)
+            if (isServiceRunning()) EventHub.resync(this)
+            val np = Store.profiles(this).size
+            val nt = Store.tasks(this).size
+            val nv = UserVars.diskEntries(this).size
+            EventLog.push("[bak] imported ($mode): $np profile(s), $nt task(s), $nv var(s)")
         } catch (e: Exception) {
             EventLog.push("[bak] import FAILED: ${e.message?.take(100) ?: "error"}")
         }

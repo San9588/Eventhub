@@ -91,6 +91,7 @@ object ActionEditor {
         Actions.INTENT -> Triple("broadcast action (com.pkg.ACTION)", "extras  key:value (per line | or ;)", "package target (optional)")
         Actions.NOTIFY -> Triple("notify text (%VAR% ok)", null, null)
         Actions.ROOT -> Triple("root command", null, null)
+        Actions.FLASH -> Triple("text to flash (%VAR% ok)", "duration seconds (0 = short ~2s)", null)
         Actions.VAR_SET -> Triple("variable name", "value to set (math ok, %VAR% ok)", null)
         Actions.VAR_SPLIT -> Triple("variable name", "splitter (default ,)", null)
         Actions.VAR_JOIN -> Triple("variable base name (%A1, %A2...)", "joiner (default ,)", "max parts (optional)")

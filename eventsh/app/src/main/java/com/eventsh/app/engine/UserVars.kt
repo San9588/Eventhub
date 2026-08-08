@@ -70,6 +70,14 @@ object UserVars {
         return out.sortedBy { it.first.lowercase() }
     }
 
+    /** Persisted (UPPERCASE) variables only - what a backup should carry. */
+    fun diskEntries(ctx: Context): List<Pair<String, String>> {
+        init(ctx)
+        val out = ArrayList<Pair<String, String>>()
+        synchronized(disk) { disk.forEach { (k, v) -> out.add(k to v) } }
+        return out.sortedBy { it.first.lowercase() }
+    }
+
     fun all(ctx: Context): Map<String, String> {
         init(ctx)
         val m = HashMap<String, String>()

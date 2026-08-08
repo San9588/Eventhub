@@ -102,7 +102,7 @@ object AlarmEngine {
         }
     }
 
-    /** Schedules an alarm at [hour]:[minute] via the standard API. */
+    /** Schedules an alarm at [hour]:[minute] via the standard AlarmManager API. */
     fun setAlarm(ctx: Context, label: String, hour: Int, minute: Int, cfg: Actions.AlarmCfg) {
         val cal = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, hour)
@@ -120,26 +120,61 @@ object AlarmEngine {
             sound = cfg.sound,
             snoozeMin = cfg.snoozeMin
         )
-        val list = load(ctx).filter { it.epoch > System.currentTimeMillis() }.toMutableList()
-        list += alarm
-        save(ctx, list)
 
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms()) {
+            EventLog.push("[alarm] exact alarms not granted - alarm may fire late; tap 'Exact alarms' in settings")
+        }
+
         val showIntent = PendingIntent.getActivity(
             ctx, id.hashCode() and 0xffff,
             Intent(ctx, com.eventsh.app.MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        try {
-            am.setAlarmClock(
-                AlarmManager.AlarmClockInfo(alarm.epoch, showIntent),
-                fireIntent(ctx, id)
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "setAlarmClock failed", e)
-            return
+        val ok = scheduleExact(ctx, am, alarm, showIntent)
+
+        val list = load(ctx).filter { it.epoch > System.currentTimeMillis() }.toMutableList()
+        if (ok) {
+            list += alarm
+            save(ctx, list)
+            EventLog.push("[alarm] set '$label' at ${String.format("%02d:%02d", hour, minute)}")
+        } else {
+            save(ctx, list)
+            EventLog.push("[alarm] FAILED to schedule '$label' - grant exact alarms and disable battery optimization")
         }
-        EventLog.push("[alarm] set '$label' at ${String.format("%02d:%02d", hour, minute)}")
+    }
+
+    /**
+     * Schedules [alarm] trying progressively simpler AlarmManager calls so a
+     * blocked exact alarm never silently fails. setAlarmClock() is exempt from
+     * exact-alarm restrictions (and shows the system alarm icon), so it is
+     * tried first; the remaining calls cover devices / OEMs where it throws.
+     * Returns true when any call succeeded.
+     */
+    private fun scheduleExact(
+        ctx: Context, am: AlarmManager, alarm: Alarm, showIntent: PendingIntent
+    ): Boolean {
+        val pi = fireIntent(ctx, alarm.id)
+        val attempts = listOf(
+            "setAlarmClock" to { am.setAlarmClock(AlarmManager.AlarmClockInfo(alarm.epoch, showIntent), pi) },
+            "setExactAndAllowWhileIdle" to { am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, alarm.epoch, pi) },
+            "setAndAllowWhileIdle" to { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, alarm.epoch, pi) },
+            "set" to { am.set(AlarmManager.RTC_WAKEUP, alarm.epoch, pi) }
+        )
+        for ((name, block) in attempts) {
+            try {
+                block()
+                EventLog.push("[alarm] scheduled via $name")
+                return true
+            } catch (e: SecurityException) {
+                Log.w(TAG, "$name blocked", e)
+                EventLog.push("[alarm] $name blocked by system (${e.message?.take(50) ?: "permission"})")
+            } catch (e: Exception) {
+                Log.w(TAG, "$name failed", e)
+                EventLog.push("[alarm] $name failed (${e.message?.take(50) ?: "error"})")
+            }
+        }
+        return false
     }
 
     /** Sets the alarm through the system clock app (Run with su mode). */

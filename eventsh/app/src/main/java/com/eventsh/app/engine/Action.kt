@@ -25,6 +25,8 @@ data class Action(
         Actions.INTENT -> "Broadcast $value" + (if (extra.isBlank()) "" else "  |  $extra")
         Actions.NOTIFY -> value.ifBlank { "on fire" }
         Actions.ROOT -> value.ifBlank { "(empty)" }
+        Actions.FLASH -> "Flash ${value.ifBlank { "(text)" }}" +
+            (if (extra.isNotBlank()) "  (${extra}s)" else "")
         Actions.VAR_SET ->
             "Set %$value = ${extra.ifBlank { "(value)" }}" +
                 (if (extra2.equals("append", true)) "  (append)" else "")
@@ -203,6 +205,7 @@ object Actions {
     const val INTENT = "intent"
     const val NOTIFY = "notify"
     const val ROOT = "root"
+    const val FLASH = "flash"
 
     const val VAR_SET = "var_set"
     const val VAR_SPLIT = "var_split"
@@ -256,6 +259,7 @@ object Actions {
         Def(INTENT, "Send Broadcast", "TASKER"),
         Def(NOTIFY, "Notify", "TASKER"),
         Def(ROOT, "Root Command", "TASKER"),
+        Def(FLASH, "Flash", "TASKER"),
         Def(VAR_SET, "Variable Set", "VARIABLE"),
         Def(VAR_SPLIT, "Variable Split", "VARIABLE"),
         Def(VAR_JOIN, "Variable Join", "VARIABLE"),

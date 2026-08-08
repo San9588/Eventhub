@@ -69,6 +69,7 @@ object Permissions {
                 val flat = Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners")
                 flat != null && flat.split(':').any { it == cn.flattenToString() }
             }
+            "overlay" -> Settings.canDrawOverlays(ctx)
             else -> true
         }
     }
@@ -86,6 +87,13 @@ object Permissions {
             out += Need(
                 "notif_listener", "Notification access", "Read posted notifications",
                 Kind.SPECIAL, settingsAction = Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
+            )
+        }
+        val linked = tasks.find { it.id == profile.taskId }
+        if (linked?.actions?.any { it.type == Actions.FLASH } == true) {
+            out += Need(
+                "overlay", "Display over other apps", "Show flash popups in the background",
+                Kind.SPECIAL, settingsAction = Settings.ACTION_MANAGE_OVERLAY_PERMISSION
             )
         }
         if ("sms" in evs) {
@@ -106,7 +114,6 @@ object Permissions {
                 Kind.RUNTIME, permission = android.Manifest.permission.BLUETOOTH_CONNECT
             )
         }
-        val linked = tasks.find { it.id == profile.taskId }
         if (linked?.actions?.any { it.type == Actions.NOTIFY } == true && Build.VERSION.SDK_INT >= 33) {
             out += Need(
                 "notify", "Notifications", "Post task notifications",
