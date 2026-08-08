@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Debug
@@ -17,12 +18,16 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
+import android.widget.AbsListView
 import android.widget.BaseAdapter
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import com.eventsh.app.engine.AppCtx
 import com.eventsh.app.engine.Ctx
@@ -42,41 +47,82 @@ import com.eventsh.app.engine.TimeCtx
 import com.eventsh.app.engine.UserVars
 import com.eventsh.app.engine.VarCtx
 import com.eventsh.app.service.EventService
-import com.eventsh.app.ui.TerminalView
+import com.eventsh.app.ui.C
+import com.eventsh.app.ui.UI
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
 class MainActivity : Activity() {
 
-    private lateinit var view: TerminalView
+    // ------------------------------------------------------------ tabs
+    private val TAB_NAMES = arrayOf("Profiles", "Tasks", "Vars", "Log", "Settings")
+    private val TAB_PROFILES = 0
+    private val TAB_TASKS = 1
+    private val TAB_VARS = 2
+    private val TAB_LOG = 3
+    private val TAB_SETTINGS = 4
+
     private val handler = Handler(Looper.getMainLooper())
     private var cpuRef = 0L
     private var permDialog: AlertDialog? = null
     private val permRows = mutableListOf<Pair<Permissions.Need, TextView>>()
+    private var resumed = false
+    private var currentTab = 0
+    private var suppressSwitch = false
+    private val expandedIds = HashSet<String>()
 
+    // data
+    private var rules: List<Rule> = emptyList()
+    private var logs: List<String> = emptyList()
+    private var running = false
+    private var rootOk = false
+    private var rootChecked = false
+    private var userVars: List<VarEntry> = emptyList()
+    private var ramText = "PSS 0MB"
+    private var cpuText = "CPU 0.0%"
+    private var battText = "--%"
+
+    // view refs
+    private lateinit var contentFrame: FrameLayout
+    private lateinit var tabIndicators: List<View>
+    private lateinit var profileList: ListView
+    private lateinit var taskList: ListView
+    private lateinit var varList: ListView
+    private lateinit var logList: ListView
+    private lateinit var settingsScroll: ScrollView
+    private lateinit var profileEmpty: TextView
+    private lateinit var taskEmpty: TextView
+    private lateinit var varEmpty: TextView
+    private lateinit var logEmpty: TextView
+    private lateinit var fabAdd: View
+    private lateinit var fabAi: View
+    private lateinit var svcChip: TextView
+    private lateinit var rootChip: TextView
+    private lateinit var statusChip: TextView
+    private lateinit var aboutText: TextView
+    private lateinit var svcSwitch: Switch
+    private lateinit var svcSwitchRow: TextView
+    private lateinit var autoSwitch: Switch
+    private lateinit var rootStatusTv: TextView
+    private lateinit var usageStatusTv: TextView
+    private lateinit var notifStatusTv: TextView
+
+    private lateinit var profileAdapter: ProfileAdapter
+    private lateinit var taskAdapter: TaskAdapter
+    private lateinit var varAdapter: VarAdapter
+    private lateinit var logAdapter: LogAdapter
+
+    data class VarEntry(val name: String, val value: String, val disk: Boolean)
+
+    // ------------------------------------------------------------ lifecycle
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        view = TerminalView(this)
-        setContentView(view)
-
-        if (Build.VERSION.SDK_INT >= 30) {
-            view.setOnApplyWindowInsetsListener { v, insets ->
-                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-                v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-                insets
-            }
-            view.requestApplyInsets()
-        }
-
         if (Build.VERSION.SDK_INT >= 33) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 10)
         }
         UserVars.init(this)
-
-        wire()
+        buildUi()
         if (RuleStore.autostart(this) && !isServiceRunning()) startServiceCompat()
         RootBridge.checkAsync()
         refreshScreen()
@@ -88,7 +134,21 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        resumed = true
         refreshPermissions()
+        refreshScreen()
+        updateStats()
+    }
+
+    override fun onPause() {
+        resumed = false
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        EventLog.listener = null
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
     }
 
     override fun onRequestPermissionsResult(
@@ -105,7 +165,7 @@ class MainActivity : Activity() {
         for ((need, tv) in permRows) {
             if (need.granted(this)) {
                 tv.text = "[ ${need.label} ] OK"
-                tv.setTextColor(0xFF3C7852.toInt())
+                tv.setTextColor(C.ok)
             } else {
                 allGranted = false
             }
@@ -117,49 +177,826 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onDestroy() {
-        EventLog.listener = null
-        handler.removeCallbacksAndMessages(null)
-        super.onDestroy()
+    // ------------------------------------------------------------ UI build
+    private fun dp(v: Float): Int = UI.dp(this, v)
+
+    private fun buildUi() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(C.bg)
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            root.setOnApplyWindowInsetsListener { v, insets ->
+                val bars = insets.getInsets(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                )
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                insets
+            }
+            root.requestApplyInsets()
+        }
+        root.addView(buildTopBar())
+        root.addView(buildTabBar())
+        contentFrame = FrameLayout(this).apply { setBackgroundColor(C.bg) }
+        root.addView(contentFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+        buildLists()
+        buildSettings()
+        buildFabs()
+        selectTab(TAB_PROFILES)
     }
 
-    private fun wire() {
-        view.onToggleRule = { r ->
-            val cur = RuleStore.load(this).toMutableList()
-            val i = cur.indexOfFirst { it.id == r.id }
-            if (i >= 0) {
-                cur[i] = r.copy(enabled = !r.enabled)
-                RuleStore.save(this, cur)
-                refreshScreen()
+    private fun chip(label: String, color: Int): TextView = TextView(this).apply {
+        text = label
+        textSize = 11f
+        setTextColor(color)
+        typeface = Typeface.DEFAULT_BOLD
+        setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+        background = UI.rounded(C.chipBg, 8f)
+    }
+
+    private fun buildTopBar(): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16f), dp(12f), dp(16f), dp(8f))
+            setBackgroundColor(C.surface)
+        }
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        titleRow.addView(
+            UI.text(this, "EVENTSH", 20f, C.primary, bold = true),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        svcChip = chip("SERVICE OFF", C.disabled)
+        titleRow.addView(svcChip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = dp(8f)
+        })
+        rootChip = chip("SU:?", C.hint)
+        titleRow.addView(rootChip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = dp(8f)
+        })
+        bar.addView(titleRow)
+        statusChip = UI.text(this, "", 12f, C.textSec)
+        bar.addView(statusChip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(4f)
+        })
+        return bar
+    }
+
+    private fun buildTabBar(): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(C.surface)
+        }
+        val indicators = ArrayList<View>()
+        for ((i, name) in TAB_NAMES.withIndex()) {
+            val ind = View(this).apply { setBackgroundColor(C.primary) }
+            val tv = UI.text(this, name, 13f, C.textSec, bold = true).apply {
+                gravity = Gravity.CENTER
+            }
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(tv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+                addView(ind, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3f)))
+            }
+            cell.setOnClickListener { selectTab(i) }
+            bar.addView(cell, LinearLayout.LayoutParams(0, dp(52f), 1f))
+            indicators.add(ind)
+        }
+        tabIndicators = indicators
+        return bar
+    }
+
+    private fun selectTab(i: Int) {
+        currentTab = i
+        for (j in TAB_NAMES.indices) {
+            tabIndicators[j].alpha = if (j == i) 1f else 0.15f
+        }
+        profileList.visibility = if (i == TAB_PROFILES) View.VISIBLE else View.GONE
+        taskList.visibility = if (i == TAB_TASKS) View.VISIBLE else View.GONE
+        varList.visibility = if (i == TAB_VARS) View.VISIBLE else View.GONE
+        logList.visibility = if (i == TAB_LOG) View.VISIBLE else View.GONE
+        settingsScroll.visibility = if (i == TAB_SETTINGS) View.VISIBLE else View.GONE
+        fabAdd.visibility = if (i == TAB_SETTINGS || i == TAB_LOG) View.GONE else View.VISIBLE
+        fabAi.visibility = fabAdd.visibility
+        refreshEmptyViews()
+    }
+
+    private fun emptyLabel(msg: String): TextView = TextView(this).apply {
+        text = msg
+        textSize = 14f
+        gravity = Gravity.CENTER
+        setTextColor(C.hint)
+        setLineSpacing(dp(4f).toFloat(), 1f)
+    }
+
+    private fun buildLists() {
+        profileEmpty = emptyLabel("No profiles yet\nTap + to create one")
+        taskEmpty = emptyLabel("No tasks yet\nTap + to create one")
+        varEmpty = emptyLabel("No variables yet\nTap + to add one")
+        logEmpty = emptyLabel("No events logged yet")
+
+        profileList = ListView(this).apply {
+            divider = null
+            dividerHeight = 0
+            setSelector(android.R.color.transparent)
+            setBackgroundColor(C.bg)
+        }
+        taskList = ListView(this).apply {
+            divider = null
+            dividerHeight = 0
+            setSelector(android.R.color.transparent)
+            setBackgroundColor(C.bg)
+        }
+        varList = ListView(this).apply {
+            divider = null
+            dividerHeight = 0
+            setSelector(android.R.color.transparent)
+            setBackgroundColor(C.bg)
+        }
+        logList = ListView(this).apply {
+            divider = null
+            dividerHeight = 0
+            setSelector(android.R.color.transparent)
+            setBackgroundColor(C.bg)
+        }
+
+        profileAdapter = ProfileAdapter()
+        taskAdapter = TaskAdapter()
+        varAdapter = VarAdapter()
+        logAdapter = LogAdapter()
+        profileList.adapter = profileAdapter
+        taskList.adapter = taskAdapter
+        varList.adapter = varAdapter
+        logList.adapter = logAdapter
+        profileList.setOnItemClickListener { _, _, pos, _ -> toggleExpand(pos) }
+        taskList.setOnItemClickListener { _, _, pos, _ -> if (pos in rules.indices) ruleDialog(rules[pos]) }
+        varList.setOnItemClickListener { _, _, pos, _ -> if (pos in userVars.indices) varDialog(userVars[pos]) }
+
+        contentFrame.addView(profileList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        contentFrame.addView(taskList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        contentFrame.addView(varList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        contentFrame.addView(logList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        contentFrame.addView(profileEmpty, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        contentFrame.addView(taskEmpty, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        contentFrame.addView(varEmpty, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        contentFrame.addView(logEmpty, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    private fun buildFabs() {
+        fabAdd = ImageView(this).apply {
+            setImageResource(R.drawable.ic_add)
+            setColorFilter(C.onPrimary)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(C.primary)
+            }
+            elevation = dp(6f).toFloat()
+            setPadding(dp(16f), dp(16f), dp(16f), dp(16f))
+            contentDescription = "Add"
+            setOnClickListener { onFabAdd() }
+        }
+        val lpAdd = FrameLayout.LayoutParams(dp(56f), dp(56f))
+        lpAdd.gravity = Gravity.BOTTOM or Gravity.END
+        lpAdd.setMargins(0, 0, dp(16f), dp(24f))
+        fabAdd.layoutParams = lpAdd
+        contentFrame.addView(fabAdd)
+
+        fabAi = ImageView(this).apply {
+            setImageResource(R.drawable.ic_ai)
+            setColorFilter(C.onPrimary)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(C.accent)
+            }
+            elevation = dp(6f).toFloat()
+            setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
+            contentDescription = "AI"
+            setOnClickListener {
+                android.widget.Toast.makeText(this@MainActivity, "AI generation coming soon", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
-        view.onNav = { s ->
-            view.screen = s
-            view.invalidate()
+        val lpAi = FrameLayout.LayoutParams(dp(48f), dp(48f))
+        lpAi.gravity = Gravity.BOTTOM or Gravity.END
+        lpAi.setMargins(0, 0, dp(20f), dp(88f))
+        fabAi.layoutParams = lpAi
+        contentFrame.addView(fabAi)
+    }
+
+    private fun refreshEmptyViews() {
+        profileEmpty.visibility = if (currentTab == TAB_PROFILES && rules.isEmpty()) View.VISIBLE else View.GONE
+        taskEmpty.visibility = if (currentTab == TAB_TASKS && rules.isEmpty()) View.VISIBLE else View.GONE
+        varEmpty.visibility = if (currentTab == TAB_VARS && userVars.isEmpty()) View.VISIBLE else View.GONE
+        logEmpty.visibility = if (currentTab == TAB_LOG && logs.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private fun onFabAdd() {
+        when (currentTab) {
+            TAB_PROFILES, TAB_TASKS -> ruleDialog(null)
+            TAB_VARS -> varDialog(null)
         }
-        view.onServiceToggle = {
+    }
+
+    // ------------------------------------------------------------ adapters
+    private fun buildCtxChip(c: Ctx): View {
+        val (tag, color) = when (c) {
+            is EventCtx -> "EV" to C.primary
+            is TimeCtx -> "TM" to C.accent
+            is DayCtx -> "DY" to C.warning
+            is VarCtx -> "VA" to C.warning
+            is AppCtx -> "AP" to C.accent
+            else -> "??" to C.hint
+        }
+        return TextView(this).apply {
+            text = "[$tag] ${c.summary()}"
+            textSize = 12f
+            setTextColor(color)
+            setPadding(dp(8f), dp(5f), dp(8f), dp(5f))
+            background = UI.rounded(C.chipBg, 8f)
+        }
+    }
+
+    private fun actionLines(r: Rule): List<Pair<Int, String>> {
+        val out = ArrayList<Pair<Int, String>>()
+        if (r.taskName.isNotBlank()) out += R.drawable.ic_terminal to "Script  ${r.taskName}"
+        if (r.shellCmd.isNotBlank()) out += R.drawable.ic_terminal to "Shell   ${r.shellCmd}"
+        if (r.sendAction.isNotBlank()) out += R.drawable.ic_send to "Intent  ${r.sendAction}"
+        if (r.rootCmd.isNotBlank()) out += R.drawable.ic_terminal to "Root    ${r.rootCmd}"
+        if (r.notify) out += R.drawable.ic_notify to "Notify  ${r.notifyText.ifBlank { "on fire" }}"
+        return out
+    }
+
+    private fun cardWrap(card: View): View {
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6f), dp(3f), dp(6f), dp(3f))
+            setBackgroundColor(C.bg)
+            addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        wrap.layoutParams = AbsListView.LayoutParams(
+            AbsListView.LayoutParams.MATCH_PARENT,
+            AbsListView.LayoutParams.WRAP_CONTENT
+        )
+        return wrap
+    }
+
+    private fun actionRow(icon: Int, text: String, color: Int): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12f), dp(5f), dp(12f), dp(5f))
+        }
+        val iv = ImageView(this).apply {
+            setImageResource(icon)
+            setColorFilter(color)
+        }
+        val lp = LinearLayout.LayoutParams(dp(18f), dp(18f))
+        row.addView(iv, lp)
+        row.addView(
+            UI.text(this, text, 13f, C.text).apply {
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(10f)
+            }
+        )
+        return row
+    }
+
+    inner class ProfileAdapter : BaseAdapter() {
+        override fun getCount() = rules.size
+        override fun getItem(pos: Int) = rules[pos]
+        override fun getItemId(pos: Int) = pos.toLong()
+
+        override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
+            val r = rules[pos]
+            val enabled = r.enabled
+            val titleColor = if (enabled) C.text else C.textSec
+            val accent = if (enabled) C.primary else C.disabled
+
+            val card = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
+                background = UI.rounded(C.card, 14f, C.border, 1f)
+            }
+
+            // header: icon + label + switch
+            val header = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val icon = ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_bolt)
+                setColorFilter(accent)
+            }
+            header.addView(icon, LinearLayout.LayoutParams(dp(24f), dp(24f)))
+            header.addView(
+                UI.text(this@MainActivity, r.label, 16f, titleColor, bold = true).apply {
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(10f)
+                }
+            )
+            val sw = Switch(this@MainActivity)
+            sw.isChecked = enabled
+            sw.setOnCheckedChangeListener { _, _ -> toggleRule(r) }
+            header.addView(sw)
+            card.addView(header)
+
+            // subtitle: trigger + task summary
+            val sub = r.contextLine().ifBlank { "no trigger set" }
+            val taskTxt = if (r.taskName.isNotBlank()) "-> ${r.taskName}" else ""
+            card.addView(
+                UI.text(this@MainActivity, sub + (if (taskTxt.isNotBlank()) "   $taskTxt" else ""), 13f, C.textSec).apply {
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(4f)
+                }
+            )
+
+            if (r.id in expandedIds) {
+                // contexts
+                val ctxHeader = UI.text(this@MainActivity, "TRIGGERS", 11f, C.accent, bold = true).apply {
+                    letterSpacing = 0.08f
+                }
+                card.addView(ctxHeader, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(10f)
+                })
+                val ctxWrap = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                }
+                if (r.contexts.isEmpty()) {
+                    ctxWrap.addView(UI.text(this@MainActivity, "no contexts", 13f, C.hint))
+                } else {
+                    var added = 0
+                    for (c in r.contexts) {
+                        ctxWrap.addView(buildCtxChip(c), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            marginStart = if (added == 0) 0 else dp(6f)
+                            topMargin = dp(4f)
+                        })
+                        added++
+                    }
+                }
+                card.addView(ctxWrap, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+                // actions
+                val actHeader = UI.text(this@MainActivity, "ACTIONS", 11f, C.accent, bold = true).apply {
+                    letterSpacing = 0.08f
+                }
+                card.addView(actHeader, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(10f)
+                })
+                val acts = actionLines(r)
+                if (acts.isEmpty()) {
+                    card.addView(UI.text(this@MainActivity, "no actions", 13f, C.hint))
+                } else {
+                    for ((ic, txt) in acts) card.addView(actionRow(ic, txt, C.primary))
+                }
+
+                // buttons
+                val btnRow = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END
+                }
+                btnRow.addView(materialButton("TEST", C.accent, { testRule(r) }))
+                btnRow.addView(materialButton("EDIT", C.primary, { ruleDialog(r) }), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = dp(8f)
+                })
+                btnRow.addView(materialButton("DELETE", C.danger, { deleteRule(r) }), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = dp(8f)
+                })
+                card.addView(btnRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(8f)
+                })
+            }
+
+            card.setOnClickListener { toggleExpand(r.id) }
+            return cardWrap(card)
+        }
+    }
+
+    private fun materialButton(label: String, color: Int, onClick: () -> Unit): TextView =
+        TextView(this).apply {
+            text = label
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(color)
+            setPadding(dp(10f), dp(5f), dp(10f), dp(5f))
+            background = UI.rounded(C.chipBg, 8f)
+            setOnClickListener { onClick() }
+        }
+
+    private fun toggleExpand(id: String) {
+        if (!expandedIds.add(id)) expandedIds.remove(id)
+        profileAdapter.notifyDataSetChanged()
+    }
+
+    private fun toggleExpand(pos: Int) {
+        if (pos in rules.indices) toggleExpand(rules[pos].id)
+    }
+
+    inner class TaskAdapter : BaseAdapter() {
+        override fun getCount() = rules.size
+        override fun getItem(pos: Int) = rules[pos]
+        override fun getItemId(pos: Int) = pos.toLong()
+
+        override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
+            val r = rules[pos]
+            val enabled = r.enabled
+            val accent = if (enabled) C.primary else C.disabled
+
+            val card = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
+                background = UI.rounded(C.card, 14f, C.border, 1f)
+            }
+            val header = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val icon = ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_list)
+                setColorFilter(accent)
+            }
+            header.addView(icon, LinearLayout.LayoutParams(dp(24f), dp(24f)))
+            header.addView(
+                UI.text(this@MainActivity, r.label, 16f, if (enabled) C.text else C.textSec, bold = true).apply {
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(10f)
+                }
+            )
+            header.addView(iconButton(R.drawable.ic_edit, C.textSec, { ruleDialog(r) }))
+            card.addView(header)
+
+            val acts = actionLines(r)
+            card.addView(
+                UI.text(this@MainActivity, "${acts.size} action(s)  ·  cd ${r.cooldownSec}s  ·  retry ${r.retries}  ·  ${if (enabled) "armed" else "off"}", 12f, C.hint),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(4f)
+                }
+            )
+            if (acts.isNotEmpty()) {
+                card.addView(UI.vsep(this@MainActivity, dp(6f)))
+                for ((ic, txt) in acts) card.addView(actionRow(ic, txt, C.primary))
+            }
+            return cardWrap(card)
+        }
+    }
+
+    private fun iconButton(icon: Int, color: Int, onClick: () -> Unit): View =
+        ImageView(this).apply {
+            setImageResource(icon)
+            setColorFilter(color)
+            setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
+            contentDescription = "action"
+            setOnClickListener { onClick() }
+        }
+
+    inner class VarAdapter : BaseAdapter() {
+        override fun getCount() = userVars.size
+        override fun getItem(pos: Int) = userVars[pos]
+        override fun getItemId(pos: Int) = pos.toLong()
+
+        override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
+            val v = userVars[pos]
+            val card = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14f), dp(12f), dp(14f), dp(12f))
+                background = UI.rounded(C.card, 14f, C.border, 1f)
+            }
+            val icon = ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_var)
+                setColorFilter(if (v.disk) C.warning else C.accent)
+            }
+            card.addView(icon, LinearLayout.LayoutParams(dp(22f), dp(22f)))
+            card.addView(
+                UI.text(this@MainActivity, v.name, 15f, if (v.disk) C.warning else C.primary, bold = true),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = dp(10f)
+                }
+            )
+            card.addView(
+                UI.text(this@MainActivity, v.value.ifBlank { "(empty)" }, 14f, if (v.value.isBlank()) C.hint else C.text).apply {
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(12f)
+                }
+            )
+            return cardWrap(card)
+        }
+    }
+
+    inner class LogAdapter : BaseAdapter() {
+        override fun getCount() = logs.size
+        override fun getItem(pos: Int) = logs[pos]
+        override fun getItemId(pos: Int) = pos.toLong()
+
+        override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
+            val line = logs[pos]
+            val color = when {
+                line.contains("FAILED") || line.contains("failed") -> C.danger
+                line.contains("[perm]") -> C.warning
+                line.startsWith("[") && line.contains("]") -> C.text
+                else -> C.textSec
+            }
+            val row = UI.text(this@MainActivity, line, 13f, color).apply {
+                setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
+            }
+            return cardWrap(row)
+        }
+    }
+
+    // ------------------------------------------------------------ settings tab
+    private fun buildSettings() {
+        val scroll = ScrollView(this).apply { setBackgroundColor(C.bg) }
+        settingsScroll = scroll
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
+        }
+        scroll.addView(root, ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        contentFrame.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        // ---- ENGINE
+        root.addView(sectionLabel("ENGINE"))
+        val svcCard = cardContainer()
+        svcSwitch = Switch(this)
+        svcSwitchRow = UI.text(this, "listening for events", 13f, C.textSec)
+        val svcRow = switchRow("Background service", svcSwitch, svcSwitchRow, {
             if (isServiceRunning()) {
                 stopService(Intent(this, EventService::class.java))
             } else {
                 startServiceCompat()
             }
             handler.postDelayed({ refreshScreen() }, 400)
-        }
-        view.onRootCheck = {
+        })
+        svcCard.addView(svcRow, matchWrap())
+        autoSwitch = Switch(this)
+        autoSwitch.isChecked = RuleStore.autostart(this)
+        autoSwitch.setOnCheckedChangeListener { _, checked -> RuleStore.setAutostart(this, checked) }
+        val autoRow = switchRow("Start on boot", autoSwitch, UI.text(this, "restart engine after reboot", 13f, C.textSec), null)
+        svcCard.addView(autoRow, matchWrap())
+        root.addView(svcCard, matchWrap())
+
+        // ---- PERMISSIONS
+        root.addView(sectionLabel("PERMISSIONS"))
+        val permCard = cardContainer()
+        val rootRow = actionRowContent("Root", "check su binary availability", {
             RootBridge.checkAsync()
             handler.postDelayed({ refreshScreen() }, 900)
-        }
-        view.onExport = { exportRules() }
-        view.onImport = { importRules() }
-        view.onAddVar = { varDialog(null) }
-        view.onEditVar = { row -> varDialog(row) }
-        view.onEditRule = { r -> ruleDialog(r) }
-        view.onDeleteRule = { r -> deleteRule(r) }
-        view.onTestRule = { r -> testRule(r) }
-        view.onAddRule = { ruleDialog(null) }
-        view.onAddTimer = { timerDialog() }
+        })
+        rootStatusTv = rootRow.second
+        permCard.addView(rootRow.first, matchWrap())
+        val usageRow = actionRowContent("Usage access", "detect foreground app (app triggers)", {
+            startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        })
+        usageStatusTv = usageRow.second
+        permCard.addView(usageRow.first, matchWrap())
+        val notifRow = actionRowContent("Notification access", "read posted notifications (notify_post)", {
+            startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        })
+        notifStatusTv = notifRow.second
+        permCard.addView(notifRow.first, matchWrap())
+        val smsRow = actionRowContent("SMS + Phone + Bluetooth", "runtime permissions for events", {
+            requestPermissions(arrayOf(
+                android.Manifest.permission.RECEIVE_SMS,
+                android.Manifest.permission.READ_PHONE_STATE,
+                android.Manifest.permission.BLUETOOTH_CONNECT
+            ), 20)
+        })
+        permCard.addView(smsRow.first, matchWrap())
+        root.addView(permCard, matchWrap())
+
+        // ---- DATA
+        root.addView(sectionLabel("DATA"))
+        val dataCard = cardContainer()
+        dataCard.addView(actionRowContent("Export", "backup rules to eventsh_backup.json", { exportRules() }).first, matchWrap())
+        dataCard.addView(actionRowContent("Import", "restore rules from backup file", { importRules() }).first, matchWrap())
+        root.addView(dataCard, matchWrap())
+
+        // ---- ABOUT
+        root.addView(sectionLabel("ABOUT"))
+        val aboutCard = cardContainer()
+        aboutText = UI.text(this, "", 13f, C.textSec)
+        aboutCard.addView(aboutText, matchWrap())
+        root.addView(aboutCard, matchWrap())
+        root.addView(UI.vsep(this, dp(80f)))
     }
 
+    private fun matchWrap(): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+    private fun sectionLabel(label: String): TextView =
+        UI.text(this, label.uppercase(Locale.US), 12f, C.accent, bold = true).apply {
+            letterSpacing = 0.1f
+            setPadding(dp(10f), dp(14f), dp(10f), dp(6f))
+        }
+
+    private fun cardContainer(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(4f), dp(4f), dp(4f), dp(4f))
+        background = UI.rounded(C.surface, 14f)
+    }
+
+    private fun switchRow(
+        label: String,
+        sw: Switch,
+        subtitle: TextView,
+        onChange: (() -> Unit)?
+    ): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12f), dp(8f), dp(8f), dp(8f))
+        }
+        val textCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        textCol.addView(UI.text(this, label, 15f, C.text))
+        textCol.addView(subtitle)
+        row.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        sw.setOnCheckedChangeListener { _, _ -> if (!suppressSwitch) onChange?.invoke() }
+        row.addView(sw)
+        return row
+    }
+
+    private fun actionRowContent(
+        label: String,
+        subtitle: String,
+        onClick: () -> Unit
+    ): Pair<View, TextView> {
+        val status = UI.text(this, "", 13f, C.textSec)
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12f), dp(8f), dp(8f), dp(8f))
+            background = UI.rounded(C.card, 10f, C.border, 1f)
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+        val textCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        textCol.addView(UI.text(this, label, 15f, C.text))
+        textCol.addView(UI.text(this, subtitle, 12f, C.textSec))
+        row.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(status)
+        return row to status
+    }
+
+    // ------------------------------------------------------------ refresh / stats
+    private fun refreshScreen() {
+        rules = RuleStore.load(this)
+        logs = EventLog.snapshot(60)
+        running = isServiceRunning()
+        rootOk = RootBridge.available == true
+        rootChecked = RootBridge.available != null
+        userVars = UserVars.entries(this).map { VarEntry(it.first, it.second, UserVars.isDiskName(it.first)) }
+
+        svcChip.text = if (running) "SERVICE ON" else "SERVICE OFF"
+        svcChip.setTextColor(if (running) C.primary else C.disabled)
+        rootChip.text = if (rootChecked) (if (rootOk) "SU:ON" else "SU:OFF") else "SU:?"
+        rootChip.setTextColor(if (rootOk) C.warning else if (rootChecked) C.hint else C.hint)
+        val armed = rules.count { it.enabled }
+        statusChip.text = if (rules.isEmpty()) "No profiles yet - tap + to begin"
+        else "$armed/${rules.size} armed  ·  ${rules.count { it.timeCtx != null || it.isDailyTimer || it.isOneShotTimer }} timers"
+
+        profileAdapter.notifyDataSetChanged()
+        taskAdapter.notifyDataSetChanged()
+        varAdapter.notifyDataSetChanged()
+        logAdapter.notifyDataSetChanged()
+        refreshEmptyViews()
+        refreshSettings()
+    }
+
+    private fun refreshSettings() {
+        if (!::svcSwitch.isInitialized) return
+        suppressSwitch = true
+        svcSwitch.isChecked = running
+        suppressSwitch = false
+        svcSwitchRow.text = if (running) "listening for events" else "stopped - rules idle"
+        rootStatusTv.text = when {
+            !rootChecked -> "?"
+            rootOk -> "ON"
+            else -> "OFF"
+        }
+        rootStatusTv.setTextColor(if (rootOk) C.ok else C.danger)
+        val usageNeed = Permissions.Need("usage", "Usage access", "", Permissions.Kind.SPECIAL, settingsAction = android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)
+        usageStatusTv.text = if (usageNeed.granted(this)) "OK" else "SET"
+        usageStatusTv.setTextColor(if (usageNeed.granted(this)) C.ok else C.warning)
+        val notifNeed = Permissions.Need("notif_listener", "Notification access", "", Permissions.Kind.SPECIAL, settingsAction = android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        notifStatusTv.text = if (notifNeed.granted(this)) "OK" else "SET"
+        notifStatusTv.setTextColor(if (notifNeed.granted(this)) C.ok else C.warning)
+        if (::aboutText.isInitialized) {
+            aboutText.text = "EVENTSH v0.1.0\n$ramText   $cpuText   battery $battText\nlisteners: ${rules.count { it.enabled }}"
+        }
+    }
+
+    private fun updateStats() {
+        if (!resumed) { cpuRef = 0L; return }
+        val mem = Debug.MemoryInfo()
+        Debug.getMemoryInfo(mem)
+        ramText = "PSS ${mem.totalPss / 1024}MB"
+        battText = "${EventHub.batteryNow(this)}%"
+        val (_, ramPct) = SysStats.mem()
+        val t = readProcStat()
+        if (cpuRef != 0L && t != 0L) cpuText = "CPU ${(t - cpuRef).coerceIn(0, 200)}%"
+        cpuRef = t
+        if (currentTab == TAB_SETTINGS) refreshScreen()
+        handler.postDelayed({ updateStats() }, 2000)
+    }
+
+    private fun readProcStat(): Long = try {
+        val content = File("/proc/self/stat").readText()
+        val idx = content.lastIndexOf(')')
+        val rest = content.substring(idx + 2).split(' ').filter { it.isNotBlank() }
+        rest[11].toLong() + rest[12].toLong()
+    } catch (e: Exception) {
+        0L
+    }
+
+    // ------------------------------------------------------------ rule actions
+    private fun toggleRule(r: Rule) {
+        val cur = RuleStore.load(this).toMutableList()
+        val i = cur.indexOfFirst { it.id == r.id }
+        if (i >= 0) {
+            cur[i] = r.copy(enabled = !r.enabled)
+            RuleStore.save(this, cur)
+            if (running) EventHub.resync(this)
+            refreshScreen()
+        }
+    }
+
+    private fun deleteRule(r: Rule) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete profile")
+            .setMessage("delete '${r.label}'?")
+            .setPositiveButton("DELETE") { _, _ ->
+                Scheduler.cancel(this, r)
+                val cur = RuleStore.load(this).toMutableList()
+                cur.removeAll { it.id == r.id }
+                RuleStore.save(this, cur)
+                if (isServiceRunning()) EventHub.resync(this)
+                refreshScreen()
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    private fun testRule(r: Rule) {
+        val ev = r.eventActions.firstOrNull() ?: r.event.ifBlank { "test" }
+        EventLog.push("[test] firing '${r.label}' on $ev")
+        Dispatcher.fire(this, r, ev, mapOf("summary" to "manual test"))
+    }
+
+    private fun exportRules() {
+        try {
+            val outDir = getExternalFilesDir(null) ?: filesDir
+            val f = File(outDir, "eventsh_backup.json")
+            val rules = RuleStore.load(this)
+            val json = org.json.JSONArray()
+            rules.forEach { json.put(it.toJson()) }
+            f.writeText(json.toString())
+            EventLog.push("[bak] exported ${rules.size} rule(s) -> ${f.absolutePath}")
+        } catch (e: Exception) {
+            EventLog.push("[bak] export FAILED: ${e.message?.take(100) ?: "error"}")
+        }
+        refreshScreen()
+    }
+
+    private fun importRules() {
+        try {
+            val outDir = getExternalFilesDir(null) ?: filesDir
+            val f = File(outDir, "eventsh_backup.json")
+            if (!f.exists()) {
+                EventLog.push("[bak] no backup file at ${f.absolutePath}")
+                refreshScreen()
+                return
+            }
+            val arr = org.json.JSONArray(f.readText())
+            val rules = ArrayList<Rule>(arr.length())
+            for (i in 0 until arr.length()) rules.add(Rule.fromJson(arr.getJSONObject(i)))
+            RuleStore.save(this, rules)
+            Scheduler.rescheduleAll(this)
+            if (isServiceRunning()) EventHub.resync(this)
+            EventLog.push("[bak] imported ${rules.size} rule(s)")
+            refreshScreen()
+        } catch (e: Exception) {
+            EventLog.push("[bak] import FAILED: ${e.message?.take(100) ?: "error"}")
+        }
+        refreshScreen()
+    }
+
+    // ------------------------------------------------------------ rule editor
     private fun ruleDialog(existing: Rule?) {
         val contexts = (existing?.contexts?.toMutableList() ?: mutableListOf<Ctx>())
         if (contexts.none { it is EventCtx } && existing != null && existing.event.isNotBlank()) {
@@ -198,30 +1035,19 @@ class MainActivity : Activity() {
         fun refreshCtx() {
             ctxBox.removeAllViews()
             if (contexts.isEmpty()) {
-                ctxBox.addView(TextView(this).apply {
-                    text = "(no contexts yet - add one)"
-                    textSize = 16f
-                    setTextColor(0xFF3C7852.toInt())
-                    setPadding(8, 10, 8, 10)
+                ctxBox.addView(UI.text(this, "(no contexts yet - add one)", 14f, C.hint).apply {
+                    setPadding(dp(4f), dp(8f), dp(4f), dp(8f))
                 })
             } else {
                 for (i in contexts.indices) {
                     val c = contexts[i]
-                    val tag = when (c.type) {
-                        Ctx.EVENT -> "EV"
-                        Ctx.TIME -> "TM"
-                        Ctx.DAY -> "DY"
-                        Ctx.VAR -> "VA"
-                        Ctx.APP -> "AP"
-                        else -> "??"
-                    }
                     val idx = i
-                    ctxBox.addView(ctxRow("[$tag] ${c.summary()}", 0xFF00FF6E.toInt()) {
+                    ctxBox.addView(ctxRow(c.summary(), C.text) {
                         editContext(contexts, idx) { refreshCtx() }
                     })
                 }
             }
-            ctxBox.addView(ctxRow("[ + ADD CONTEXT ]", 0xFFFFB020.toInt()) {
+            ctxBox.addView(ctxRow("+ ADD CONTEXT", C.accent) {
                 addContext(contexts) { refreshCtx() }
             })
         }
@@ -252,7 +1078,7 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(ll) }
 
         val d = AlertDialog.Builder(this)
-            .setTitle(if (existing == null) "ADD RULE" else "EDIT RULE")
+            .setTitle(if (existing == null) "NEW PROFILE" else "EDIT PROFILE")
             .setMessage("tap a context to edit it\nall contexts must match (AND)")
             .setView(scroll)
             .setPositiveButton("SAVE") { _, _ ->
@@ -317,105 +1143,36 @@ class MainActivity : Activity() {
         d.show()
     }
 
-    /** Manual test: fire the rule's actions immediately, bypassing cooldown. */
-    private fun testRule(r: Rule) {
-        val ev = r.eventActions.firstOrNull() ?: r.event.ifBlank { "test" }
-        EventLog.push("[test] firing '${r.label}' on $ev")
-        Dispatcher.fire(this, r, ev, mapOf("summary" to "manual test"))
+    private fun editText(hint: String): EditText = EditText(this).apply {
+        this.hint = hint
+        setHintTextColor(C.hint)
+        setTextColor(C.text)
+        textSize = 16f
+        background = UI.rounded(C.surface, 10f, C.border, 1f)
+        setPadding(dp(10f), dp(9f), dp(10f), dp(9f))
     }
 
-    /** Writes all rules + user vars as JSON to the external files dir. */
-    private fun exportRules() {
-        try {
-            val outDir = getExternalFilesDir(null) ?: filesDir
-            val f = File(outDir, "eventsh_backup.json")
-            val rules = RuleStore.load(this)
-            val json = org.json.JSONArray()
-            rules.forEach { json.put(it.toJson()) }
-            f.writeText(json.toString())
-            EventLog.push("[bak] exported ${rules.size} rule(s) -> ${f.absolutePath}")
-        } catch (e: Exception) {
-            EventLog.push("[bak] export FAILED: ${e.message?.take(100) ?: "error"}")
-        }
-        refreshScreen()
+    private fun checkBox(text: String): CheckBox = CheckBox(this).apply {
+        this.text = text
+        setTextColor(C.text)
+        textSize = 15f
     }
 
-    /** Loads rules + user vars from the external files dir backup file. */
-    private fun importRules() {
-        try {
-            val outDir = getExternalFilesDir(null) ?: filesDir
-            val f = File(outDir, "eventsh_backup.json")
-            if (!f.exists()) {
-                EventLog.push("[bak] no backup file at ${f.absolutePath}")
-                refreshScreen()
-                return
-            }
-            val arr = org.json.JSONArray(f.readText())
-            val rules = ArrayList<Rule>(arr.length())
-            for (i in 0 until arr.length()) rules.add(Rule.fromJson(arr.getJSONObject(i)))
-            RuleStore.save(this, rules)
-            Scheduler.rescheduleAll(this)
-            if (isServiceRunning()) EventHub.resync(this)
-            EventLog.push("[bak] imported ${rules.size} rule(s)")
-            refreshScreen()
-        } catch (e: Exception) {
-            EventLog.push("[bak] import FAILED: ${e.message?.take(100) ?: "error"}")
+    private fun sectionLabel(text: String): TextView =
+        UI.text(this, text.uppercase(Locale.US), 12f, C.accent, bold = true).apply {
+            letterSpacing = 0.1f
+            setPadding(dp(4f), dp(14f), dp(4f), dp(6f))
         }
-        refreshScreen()
-    }
 
-    private fun deleteRule(r: Rule) {
-        AlertDialog.Builder(this)
-            .setTitle("DELETE RULE")
-            .setMessage("delete '${r.label}'?")
-            .setPositiveButton("DELETE") { _, _ ->
-                Scheduler.cancel(this, r)
-                val cur = RuleStore.load(this).toMutableList()
-                cur.removeAll { it.id == r.id }
-                RuleStore.save(this, cur)
-                if (isServiceRunning()) EventHub.resync(this)
-                refreshScreen()
-            }
-            .setNegativeButton("CANCEL", null)
-            .show()
-    }
-
-    /** Tasker-style permission prompt: tap a row to set up that permission. */
-    private fun showPermissionsDialog(missing: List<Permissions.Need>) {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(56, 16, 56, 24)
+    private fun ctxRow(text: String, color: Int, onClick: () -> Unit): TextView =
+        TextView(this).apply {
+            this.text = text
+            textSize = 15f
+            setTextColor(color)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            background = UI.rounded(C.card, 10f, C.border, 1f)
+            setOnClickListener { onClick() }
         }
-        box.addView(TextView(this).apply {
-            text = "Tap each one to set it up"
-            textSize = 13f
-            setTextColor(0xFF9DCAAD.toInt())
-        })
-        permRows.clear()
-        missing.forEach { need ->
-            val tv = TextView(this).apply {
-                text = "[ ${need.label} ]  SET"
-                setPadding(0, 28, 0, 2)
-                textSize = 17f
-                setTextColor(0xFF37F08B.toInt())
-                setOnClickListener { need.open(this@MainActivity) }
-            }
-            box.addView(tv)
-            box.addView(TextView(this).apply {
-                text = need.detail
-                textSize = 12f
-                setTextColor(0xFF9DCAAD.toInt())
-            })
-            permRows += need to tv
-        }
-        val d = AlertDialog.Builder(this)
-            .setTitle("PERMISSIONS NEEDED")
-            .setView(box)
-            .setPositiveButton("DONE", null)
-            .show()
-        permDialog = d
-        refreshPermissions()
-    }
 
     // ------------------------------------------------------------ context editors
     private fun addContext(list: MutableList<Ctx>, refresh: () -> Unit) {
@@ -454,12 +1211,7 @@ class MainActivity : Activity() {
             paramEt.clear()
             paramsBox.removeAllViews()
             EventCatalog.PARAMS[action]?.forEach { (key, label) ->
-                paramsBox.addView(TextView(this).apply {
-                    text = label
-                    textSize = 14f
-                    setPadding(8, 12, 8, 0)
-                    setTextColor(0xFF00FF6E.toInt())
-                })
+                paramsBox.addView(sectionLabel(label))
                 val et = editText("pattern ($key, * + / ! supported)")
                 params[key]?.let { et.setText(it) }
                 paramEt[key] = et
@@ -470,9 +1222,9 @@ class MainActivity : Activity() {
 
         val actionTv = TextView(this).apply {
             textSize = 16f
-            setPadding(8, 14, 8, 14)
+            setPadding(dp(8f), dp(12f), dp(8f), dp(12f))
             text = if (action.isBlank()) "(tap to choose event)" else action
-            setTextColor(0xFF00FF6E.toInt())
+            setTextColor(C.primary)
             setOnClickListener {
                 pickEvent { ev ->
                     action = ev
@@ -537,9 +1289,9 @@ class MainActivity : Activity() {
 
         val fromTv = TextView(this).apply {
             textSize = 16f
-            setPadding(8, 14, 8, 14)
+            setPadding(dp(8f), dp(12f), dp(8f), dp(12f))
             text = "From: ${TimeCtx.display(from)}"
-            setTextColor(0xFF00FF6E.toInt())
+            setTextColor(C.primary)
             setOnClickListener {
                 val (h, m) = hm(from)
                 TimePickerDialog(this@MainActivity, { _, hh, mm ->
@@ -550,9 +1302,9 @@ class MainActivity : Activity() {
         }
         val toTv = TextView(this).apply {
             textSize = 16f
-            setPadding(8, 14, 8, 14)
+            setPadding(dp(8f), dp(12f), dp(8f), dp(12f))
             text = "To: ${TimeCtx.display(to)}"
-            setTextColor(0xFF00FF6E.toInt())
+            setTextColor(C.primary)
             setOnClickListener {
                 val (h, m) = hm(to)
                 TimePickerDialog(this@MainActivity, { _, hh, mm ->
@@ -661,9 +1413,9 @@ class MainActivity : Activity() {
         val pkgs = existing?.packages?.toMutableSet() ?: mutableSetOf<String>()
         val pickTv = TextView(this).apply {
             textSize = 16f
-            setPadding(8, 14, 8, 14)
+            setPadding(dp(8f), dp(12f), dp(8f), dp(12f))
             text = if (pkgs.isEmpty()) "TAP HERE TO SELECT APPS" else "${pkgs.size} app(s) selected"
-            setTextColor(0xFF00FF6E.toInt())
+            setTextColor(C.primary)
             setOnClickListener {
                 appPick(pkgs) { sel ->
                     pkgs.clear()
@@ -711,7 +1463,6 @@ class MainActivity : Activity() {
         val user = all.filter { !isSystem(it) }.sortedBy { label(it).lowercase() }
         val system = all.filter { isSystem(it) }.sortedBy { label(it).lowercase() }
         val checked = selected.toMutableSet()
-        // rows: String header or ApplicationInfo
         val rows = ArrayList<Any>()
         if (user.isNotEmpty()) {
             rows.add("USER APPS (${user.size})")
@@ -732,13 +1483,9 @@ class MainActivity : Activity() {
             override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
                 val r = rows[pos]
                 if (r is String) {
-                    return TextView(this@MainActivity).apply {
-                        text = r
-                        textSize = 13f
-                        setTypeface(typeface, Typeface.BOLD)
-                        setTextColor(0xFF00FF6E.toInt())
-                        setPadding(12, 14, 12, 4)
-                        setBackgroundColor(0xFF0A1F12.toInt())
+                    return UI.text(this@MainActivity, r, 13f, C.accent, bold = true).apply {
+                        setPadding(dp(12f), dp(14f), dp(12f), dp(4f))
+                        setBackgroundColor(C.surface)
                     }
                 }
                 val ai = r as ApplicationInfo
@@ -747,18 +1494,16 @@ class MainActivity : Activity() {
                     isClickable = false
                     isFocusable = false
                 }
-                val tv = TextView(this@MainActivity).apply {
-                    text = label(ai)
-                    textSize = 15f
-                    setTextColor(0xFFD7D7D7.toInt())
-                }
+                val tv = UI.text(this@MainActivity, label(ai), 15f, C.text)
                 return LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(8, 8, 8, 8)
-                    setBackgroundColor(0xFF071209.toInt())
+                    setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
+                    setBackgroundColor(C.bg)
                     addView(cb)
-                    addView(tv)
+                    addView(tv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        marginStart = dp(8f)
+                    })
                     setOnClickListener {
                         if (!checked.remove(ai.packageName)) checked.add(ai.packageName)
                         cb.isChecked = checked.contains(ai.packageName)
@@ -776,22 +1521,6 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun sectionLabel(text: String): TextView = TextView(this).apply {
-        this.text = text
-        textSize = 14f
-        setTextColor(0xFF3C7852.toInt())
-        setPadding(8, 12, 8, 2)
-    }
-
-    private fun ctxRow(text: String, color: Int, onClick: () -> Unit): TextView = TextView(this).apply {
-        this.text = text
-        textSize = 16f
-        setTextColor(color)
-        setPadding(8, 12, 8, 12)
-        setBackgroundColor(0xFF071209.toInt())
-        setOnClickListener { onClick() }
-    }
-
     private fun pickEvent(onPick: (String) -> Unit) {
         val used = RuleStore.load(this).flatMap { it.eventActions }
             .filter { it.isNotBlank() }
@@ -805,6 +1534,8 @@ class MainActivity : Activity() {
                 if (sel == "custom...") {
                     val input = EditText(this).apply {
                         hint = "broadcast action string"
+                        setTextColor(C.text)
+                        setHintTextColor(C.hint)
                         textSize = 18f
                     }
                     AlertDialog.Builder(this)
@@ -825,16 +1556,7 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun editText(hint: String): EditText = EditText(this).apply {
-        this.hint = hint
-        textSize = 18f
-    }
-
-    private fun checkBox(text: String): CheckBox = CheckBox(this).apply {
-        this.text = text
-        textSize = 18f
-    }
-
+    // ------------------------------------------------------------ vars / timer
     private fun timerDialog() {
         val whenEt = editText("07:30 | +600 | epoch-ms")
         val labelEt = editText("label")
@@ -889,7 +1611,7 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun varDialog(existing: TerminalView.VarRow?) {
+    private fun varDialog(existing: VarEntry?) {
         val nameEt = editText("name  (UPPER=disk)")
         val valEt = editText("value")
         if (existing != null) {
@@ -923,6 +1645,36 @@ class MainActivity : Activity() {
         d.show()
     }
 
+    // ------------------------------------------------------------ permissions dialog
+    private fun showPermissionsDialog(missing: List<Permissions.Need>) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(8f), dp(20f), dp(8f))
+        }
+        box.addView(UI.text(this, "Tap each one to set it up", 13f, C.textSec))
+        permRows.clear()
+        missing.forEach { need ->
+            val tv = TextView(this).apply {
+                text = "[ ${need.label} ]  SET"
+                setPadding(0, dp(14f), 0, dp(1f))
+                textSize = 16f
+                setTextColor(C.primary)
+                setOnClickListener { need.open(this@MainActivity) }
+            }
+            box.addView(tv)
+            box.addView(UI.text(this, need.detail, 12f, C.textSec))
+            permRows += need to tv
+        }
+        val d = AlertDialog.Builder(this)
+            .setTitle("PERMISSIONS NEEDED")
+            .setView(box)
+            .setPositiveButton("DONE", null)
+            .show()
+        permDialog = d
+        refreshPermissions()
+    }
+
+    // ------------------------------------------------------------ service
     private fun startServiceCompat() {
         try {
             val i = Intent(this, EventService::class.java)
@@ -936,45 +1688,5 @@ class MainActivity : Activity() {
         val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         return am.getRunningServices(Int.MAX_VALUE)
             .any { it.service.className == EventService::class.java.name }
-    }
-
-    private fun refreshScreen() {
-        val rules = RuleStore.load(this)
-        view.rules = rules
-        view.armedCount = rules.count { it.enabled }
-        view.logs = EventLog.snapshot(18)
-        view.rootOk = RootBridge.available == true
-        view.rootChecked = RootBridge.available != null
-        view.running = isServiceRunning()
-        view.userVars = UserVars.entries(this).map {
-            TerminalView.VarRow(it.first, it.second, UserVars.isDiskName(it.first))
-        }
-        view.invalidate()
-    }
-
-    private fun updateStats() {
-        val mem = Debug.MemoryInfo()
-        Debug.getMemoryInfo(mem)
-        view.ramText = "PSS ${mem.totalPss / 1024}MB"
-        view.battText = "${EventHub.batteryNow(this)}%"
-        view.timeText = SimpleDateFormat("HH:mm", Locale.US).format(Date())
-        val (_, ramPct) = SysStats.mem()
-        view.ramPctText = "RAM $ramPct%"
-        val freeMb = SysStats.diskFreeMb()
-        view.diskText = if (freeMb >= 1024) "DSK ${freeMb / 1024}G" else "DSK ${freeMb}M"
-        val t = readProcStat()
-        if (cpuRef != 0L && t != 0L) view.cpuText = "CPU ${(t - cpuRef).coerceIn(0, 200)}%"
-        cpuRef = t
-        refreshScreen()
-        handler.postDelayed({ updateStats() }, 2000)
-    }
-
-    private fun readProcStat(): Long = try {
-        val content = File("/proc/self/stat").readText()
-        val idx = content.lastIndexOf(')')
-        val rest = content.substring(idx + 2).split(' ').filter { it.isNotBlank() }
-        rest[11].toLong() + rest[12].toLong()
-    } catch (e: Exception) {
-        0L
     }
 }
