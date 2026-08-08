@@ -14,6 +14,8 @@ import android.os.Bundle
 import android.os.Debug
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -430,7 +432,9 @@ class MainActivity : Activity() {
                 Actions.SCRIPT, Actions.SHELL, Actions.ROOT -> R.drawable.ic_terminal
                 Actions.INTENT -> R.drawable.ic_send
                 Actions.NOTIFY -> R.drawable.ic_notify
-                else -> R.drawable.ic_list
+                Actions.VAR_SET, Actions.VAR_SPLIT, Actions.VAR_JOIN, Actions.VAR_QUERY -> R.drawable.ic_var
+                Actions.IF, Actions.ELSE, Actions.END_IF, Actions.FOR, Actions.END_FOR -> R.drawable.ic_list
+                else -> R.drawable.ic_settings
             }
             out += icon to "${a.label()}  ${a.summary()}"
         }
@@ -1185,7 +1189,11 @@ class MainActivity : Activity() {
                     val a = actions[i]
                     val idx = i
                     actBox.addView(ctxRow("${a.label()}  ${a.summary()}", C.text) {
-                        actionDialog(a) { na -> actions[idx] = na; refreshActs() }
+                        actionDialog(
+                            a,
+                            onSave = { na -> actions[idx] = na; refreshActs() },
+                            onRemove = { actions.removeAt(idx); refreshActs() }
+                        )
                     })
                 }
             }
@@ -1240,53 +1248,139 @@ class MainActivity : Activity() {
     }
 
     private fun actionTypePick(onPick: (String) -> Unit) {
-        AlertDialog.Builder(this)
-            .setTitle("ADD ACTION")
-            .setItems(arrayOf("SCRIPT (Termux)", "SHELL (built-in)", "SEND BROADCAST", "NOTIFY", "ROOT")) { _, which ->
-                when (which) {
-                    0 -> onPick(Actions.SCRIPT)
-                    1 -> onPick(Actions.SHELL)
-                    2 -> onPick(Actions.INTENT)
-                    3 -> onPick(Actions.NOTIFY)
-                    4 -> onPick(Actions.ROOT)
+        val defs = Actions.CATALOG
+        val search = editText("search actions... (e.g. var, wifi, for)").apply {
+            setTextColor(C.text)
+            setHintTextColor(C.hint)
+        }
+        val lv = ListView(this).apply {
+            divider = null
+            dividerHeight = 0
+            setSelector(android.R.color.transparent)
+        }
+        var filtered = defs.toList()
+        val adapter = object : BaseAdapter() {
+            override fun getCount() = filtered.size
+            override fun getItem(pos: Int) = filtered[pos]
+            override fun getItemId(pos: Int) = pos.toLong()
+            override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
+                val d = filtered[pos]
+                val row = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
+                    setBackgroundColor(C.bg)
                 }
+                row.addView(UI.text(this@MainActivity, d.label, 15f, C.text))
+                row.addView(UI.text(this@MainActivity, d.category, 11f, C.hint))
+                return row
             }
+        }
+        lv.adapter = adapter
+        fun applyQuery(q: String) {
+            filtered = if (q.isBlank()) defs.toList()
+            else defs.filter {
+                it.label.contains(q, true) || it.type.contains(q, true) || it.category.contains(q, true)
+            }
+            adapter.notifyDataSetChanged()
+        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                applyQuery(s?.toString() ?: "")
+            }
+        })
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12f), dp(8f), dp(12f), dp(4f))
+            addView(search)
+            addView(lv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)).apply {
+                topMargin = dp(6f)
+            })
+        }
+        var pickerDialog: AlertDialog? = null
+        pickerDialog = AlertDialog.Builder(this)
+            .setTitle("ADD ACTION (${defs.size})")
+            .setView(box)
             .setNegativeButton("CANCEL", null)
             .show()
-    }
-
-    private fun actionDialog(existing: Action, onSave: (Action) -> Unit) {
-        val type = existing.type
-        val valueEt = editText("value")
-        val extraEt = editText("extras  key:value (per line | or ;)")
-        val pkgEt = editText("package target (optional)")
-        when (type) {
-            Actions.SCRIPT -> valueEt.hint = "termux task name"
-            Actions.SHELL -> valueEt.hint = "shell command (sh -c ...)"
-            Actions.INTENT -> valueEt.hint = "broadcast action (com.pkg.ACTION)"
-            Actions.NOTIFY -> valueEt.hint = "notify text (%VAR% ok)"
-            Actions.ROOT -> valueEt.hint = "root command"
-        }
-        valueEt.setText(existing.value)
-        extraEt.setText(existing.extra)
-        pkgEt.setText(existing.extra2)
-
-        val ll = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(valueEt)
-            if (type == Actions.INTENT) {
-                addView(extraEt)
-                addView(pkgEt)
+        lv.setOnItemClickListener { _, _, pos, _ ->
+            if (pos in filtered.indices) {
+                onPick(filtered[pos].type)
+                pickerDialog?.dismiss()
             }
         }
-        AlertDialog.Builder(this)
+        applyQuery("")
+    }
+
+    private fun actionFieldHints(type: String): Triple<String?, String?, String?> = when (type) {
+        Actions.SCRIPT -> Triple("termux task name", null, null)
+        Actions.SHELL -> Triple("shell command (sh -c ...)", null, null)
+        Actions.INTENT -> Triple("broadcast action (com.pkg.ACTION)", "extras  key:value (per line | or ;)", "package target (optional)")
+        Actions.NOTIFY -> Triple("notify text (%VAR% ok)", null, null)
+        Actions.ROOT -> Triple("root command", null, null)
+        Actions.VAR_SET -> Triple("variable name", "value to set (%VAR% ok)", null)
+        Actions.VAR_SPLIT -> Triple("variable name", "splitter (default ,)", null)
+        Actions.VAR_JOIN -> Triple("variable base name (%A1, %A2...)", "joiner (default ,)", "max parts (optional)")
+        Actions.VAR_QUERY -> Triple("variable to query", "store result in variable", "default if unset")
+        Actions.IF -> Triple("condition: %var = x | %var > 5 | %var ~ *foo*", null, null)
+        Actions.FOR -> Triple("values: 1..5 | a,b,c | %arr", "loop variable (default %loop)", null)
+        else -> Triple(null, null, null)
+    }
+
+    private fun actionDialog(
+        existing: Action,
+        onSave: (Action) -> Unit,
+        onRemove: (() -> Unit)? = null
+    ) {
+        val type = existing.type
+        val (vh, eh, e2h) = actionFieldHints(type)
+
+        val ll = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (Actions.noParams(type)) {
+            ll.addView(
+                UI.text(this, "No parameters needed.\nRuns when the task reaches this step.", 14f, C.textSec).apply {
+                    setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
+                }
+            )
+        }
+
+        var valueEt: EditText? = null
+        var extraEt: EditText? = null
+        var extra2Et: EditText? = null
+        var appendCb: CheckBox? = null
+
+        if (vh != null) {
+            valueEt = editText(vh).apply { setText(existing.value) }
+            ll.addView(valueEt)
+        }
+        if (type == Actions.VAR_SET) {
+            appendCb = checkBox("append to existing value").apply { isChecked = existing.extra2 == "append" }
+            ll.addView(appendCb)
+        }
+        if (eh != null) {
+            extraEt = editText(eh).apply { setText(existing.extra) }
+            ll.addView(extraEt)
+        }
+        if (e2h != null) {
+            extra2Et = editText(e2h).apply { setText(existing.extra2) }
+            ll.addView(extra2Et)
+        }
+
+        val d = AlertDialog.Builder(this)
             .setTitle("ACTION  ${existing.label()}")
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
-                onSave(Action(type, valueEt.text.toString(), extraEt.text.toString(), pkgEt.text.toString()))
+                val extra2 = if (type == Actions.VAR_SET) {
+                    if (appendCb?.isChecked == true) "append" else ""
+                } else {
+                    extra2Et?.text?.toString() ?: ""
+                }
+                onSave(Action(type, valueEt?.text?.toString() ?: "", extraEt?.text?.toString() ?: "", extra2))
             }
             .setNegativeButton("CANCEL", null)
-            .show()
+        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
+        d.show()
     }
 
     private fun editText(hint: String): EditText = EditText(this).apply {
@@ -1431,9 +1525,20 @@ class MainActivity : Activity() {
         val repeatEt = editText("repeat every N minutes (0 = no repeat)")
         if (existing != null && existing.repeatMin > 0) repeatEt.setText(existing.repeatMin.toString())
         val singleCb = checkBox("single exact time (no From/To range)")
-        singleCb.isChecked = existing != null && existing.from.isNotBlank() && existing.from == existing.to
+        singleCb.isChecked = existing != null && existing.isPoint
 
-        val fromTv = TextView(this).apply {
+        lateinit var fromTv: TextView
+        lateinit var toTv: TextView
+
+        fun syncViews() {
+            fromTv.alpha = 1f
+            toTv.alpha = if (singleCb.isChecked) 0.35f else 1f
+            toTv.isClickable = !singleCb.isChecked
+            toTv.text = if (singleCb.isChecked) "To: (same as From)" else "To: ${TimeCtx.display(to)}"
+            fromTv.text = "From: ${TimeCtx.display(from)}"
+        }
+
+        fromTv = TextView(this).apply {
             textSize = 16f
             setPadding(dp(8f), dp(12f), dp(8f), dp(12f))
             text = "From: ${TimeCtx.display(from)}"
@@ -1442,11 +1547,12 @@ class MainActivity : Activity() {
                 val (h, m) = hm(from)
                 TimePickerDialog(this@MainActivity, { _, hh, mm ->
                     from = String.format(Locale.US, "%02d:%02d", hh, mm)
-                    text = "From: $from"
+                    if (singleCb.isChecked) to = from
+                    syncViews()
                 }, h, m, true).show()
             }
         }
-        val toTv = TextView(this).apply {
+        toTv = TextView(this).apply {
             textSize = 16f
             setPadding(dp(8f), dp(12f), dp(8f), dp(12f))
             text = "To: ${TimeCtx.display(to)}"
@@ -1455,16 +1561,18 @@ class MainActivity : Activity() {
                 val (h, m) = hm(to)
                 TimePickerDialog(this@MainActivity, { _, hh, mm ->
                     to = String.format(Locale.US, "%02d:%02d", hh, mm)
-                    text = "To: $to"
+                    if (singleCb.isChecked) from = to
+                    syncViews()
                 }, h, m, true).show()
             }
         }
-        fun syncViews() {
-            fromTv.alpha = if (singleCb.isChecked) 0.35f else 1f
-            toTv.alpha = if (singleCb.isChecked) 0.35f else 1f
-            toTv.text = if (singleCb.isChecked) "To: (same as From)" else "To: ${TimeCtx.display(to)}"
+        singleCb.setOnCheckedChangeListener { _, _ ->
+            if (singleCb.isChecked) {
+                if (from.isBlank() && to.isNotBlank()) from = to
+                if (to.isBlank() && from.isNotBlank()) to = from
+            }
+            syncViews()
         }
-        singleCb.setOnCheckedChangeListener { _, _ -> syncViews() }
         syncViews()
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1479,7 +1587,14 @@ class MainActivity : Activity() {
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
                 val rep = (repeatEt.text.toString().toIntOrNull() ?: 0).coerceAtLeast(0)
-                val t = if (singleCb.isChecked) TimeCtx(from, from, 0) else TimeCtx(from, to, rep)
+                val t = if (singleCb.isChecked) {
+                    val point = from.ifBlank { to }
+                    if (point.isBlank()) {
+                        EventLog.push("[ui] pick a time first")
+                        return@setPositiveButton
+                    }
+                    TimeCtx(point, point, 0)
+                } else TimeCtx(from, to, rep)
                 onSave(t)
             }
             .setNegativeButton("CANCEL", null)

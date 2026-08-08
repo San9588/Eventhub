@@ -58,9 +58,173 @@ object Dispatcher {
 
         val task = Store.tasks(ctx).find { it.id == profile.taskId } ?: return
         val attempts = (task.retries + 1).coerceAtLeast(1)
-        for (a in task.actions) {
-            execute(ctx, profile, task, a, vars, attempts, event, summary)
+        runActions(ctx, profile, task, vars, attempts, event, summary)
+    }
+
+    /**
+     * Executes a task's actions in order with If/Else/End If and For/End For
+     * control flow. Block commands (IF/ELSE/END_IF/FOR/END_FOR) just move the
+     * instruction pointer; every other action is handed to [execute].
+     */
+    private fun runActions(
+        ctx: Context,
+        profile: Profile,
+        task: Task,
+        vars: MutableMap<String, String>,
+        attempts: Int,
+        event: String,
+        summary: String
+    ) {
+        val actions = task.actions
+        var pc = 0
+        val forStack = ArrayDeque<ForFrame>()
+        while (pc < actions.size) {
+            val a = actions[pc]
+            when (a.type) {
+                Actions.IF -> {
+                    if (evalCondition(a.value, vars)) {
+                        pc++
+                    } else {
+                        pc = findBlockEnd(actions, pc, Actions.IF, Actions.ELSE, Actions.END_IF, false)
+                    }
+                }
+                Actions.ELSE -> pc = findBlockEnd(actions, pc, Actions.IF, null, Actions.END_IF, true)
+                Actions.END_IF -> pc++
+                Actions.FOR -> {
+                    val values = loopValues(a, vars)
+                    if (values.isEmpty()) {
+                        pc = findBlockEnd(actions, pc, Actions.FOR, null, Actions.END_FOR, false)
+                    } else {
+                        val it = values.iterator()
+                        val lv = a.extra.trim().removePrefix("%").ifBlank { "loop" }
+                        vars[lv] = it.next()
+                        forStack.addLast(ForFrame(pc, it, lv))
+                        pc++
+                    }
+                }
+                Actions.END_FOR -> {
+                    val f = forStack.removeLastOrNull()
+                    if (f != null && f.iter.hasNext()) {
+                        vars[f.varName] = f.iter.next()
+                        pc = f.start + 1
+                    } else {
+                        pc++
+                    }
+                }
+                else -> {
+                    execute(ctx, profile, task, a, vars, attempts, event, summary)
+                    pc++
+                }
+            }
         }
+    }
+
+    /**
+     * Scans forward from [start] for the block terminator. [startOpen] is true
+     * when the caller IS the block opener already accounted for (Else) - it
+     * prevents the opener from being counted twice.
+     */
+    private fun findBlockEnd(
+        actions: List<Action>,
+        start: Int,
+        openType: String,
+        elseType: String?,
+        endType: String,
+        startOpen: Boolean
+    ): Int {
+        var depth = if (startOpen) 1 else 0
+        var i = start
+        while (i < actions.size) {
+            val t = actions[i].type
+            if (elseType != null && depth == 1 && t == elseType) return i + 1
+            if (t == openType) {
+                depth++
+            } else if (t == endType) {
+                depth--
+                if (depth == 0) return i + 1
+            }
+            i++
+        }
+        return actions.size
+    }
+
+    /**
+     * Evaluates a Tasker-style If condition:
+     *  `%var = val`, `!=`, `>`, `>=`, `<`, `<=` (numeric compare),
+     *  `%var ~ pattern`, `%var !~ pattern` (wildcard, * + / ! supported),
+     *  bare expression = true when the resolved value is non-blank.
+     * The operator used is the one appearing earliest in the expression, so
+     * `%var = a~b` compares with `=` and `%var ~ *a*` matches with `~`.
+     */
+    private fun evalCondition(expr: String, vars: Map<String, String>): Boolean {
+        val s = expr.trim()
+        if (s.isEmpty()) return true
+        var bestOp: String? = null
+        var bestIdx = -1
+        for (op in arrayOf("!~", "~", ">=", "<=", "!=", "==", "=", ">", "<")) {
+            val idx = s.indexOf(op)
+            if (idx > 0 && (bestIdx < 0 || idx < bestIdx)) {
+                bestIdx = idx
+                bestOp = op
+            }
+        }
+        if (bestOp != null) {
+            val l = Vars.resolve(s.substring(0, bestIdx).trim(), vars)
+            val r = Vars.resolve(s.substring(bestIdx + bestOp.length).trim(), vars)
+            return when (bestOp) {
+                "=", "==" -> l == r
+                "!=" -> l != r
+                ">", ">=", "<", "<=" -> {
+                    val a = l.toDoubleOrNull()
+                    val b = r.toDoubleOrNull()
+                    if (a == null || b == null) false
+                    else when (bestOp) {
+                        ">" -> a > b
+                        ">=" -> a >= b
+                        "<" -> a < b
+                        else -> a <= b
+                    }
+                }
+                "~" -> ContextGate.matchPattern(r, l)
+                else -> !ContextGate.matchPattern(r, l)
+            }
+        }
+        return Vars.resolve(s, vars).isNotBlank()
+    }
+
+    /** Resolves a For loop's value list: "1..5", "a,b,c" or an array %var. */
+    private fun loopValues(a: Action, vars: Map<String, String>): List<String> {
+        val raw = a.value.trim()
+        if (raw.isBlank()) return emptyList()
+        if (raw.startsWith("%")) {
+            val base = raw.removePrefix("%")
+            val out = mutableListOf<String>()
+            var i = 1
+            while (out.size < 1000) {
+                val v = vars[base + i]
+                if (v == null) break
+                out.add(v)
+                i++
+            }
+            return out
+        }
+        val spec = Vars.resolve(raw, vars).trim()
+        val range = Regex("^(-?\\d+)\\.\\.(-?\\d+)$").find(spec)
+        if (range != null) {
+            val from = range.groupValues[1].toInt()
+            val to = range.groupValues[2].toInt()
+            val step = if (from <= to) 1 else -1
+            val out = mutableListOf<String>()
+            var v = from
+            var guard = 0
+            while (if (step > 0) v <= to else v >= to) {
+                out.add(v.toString())
+                if (++guard > 100000) break
+                v += step
+            }
+            return out
+        }
+        return spec.split(",").map { it.trim() }.filter { it.isNotEmpty() }
     }
 
     private fun execute(
@@ -138,10 +302,105 @@ object Dispatcher {
                         }
                     }.start()
                 }
+
+                Actions.VAR_SET -> {
+                    val name = Vars.resolve(a.value, vars).trim()
+                    val valExpr = Vars.resolve(a.extra, vars)
+                    val append = a.extra2.equals("append", true)
+                    if (name.isNotBlank()) {
+                        val cur = UserVars.get(ctx, name) ?: vars[name]
+                        val result = if (append) (cur ?: "") + valExpr else valExpr
+                        UserVars.set(ctx, name, result)
+                        vars[name] = result
+                        EventLog.push("[${profile.name}] var %$name = $result")
+                    }
+                }
+
+                Actions.VAR_SPLIT -> {
+                    val name = Vars.resolve(a.value, vars).trim()
+                    val sep = Vars.resolve(a.extra, vars)
+                    if (name.isNotBlank()) {
+                        val cur = UserVars.get(ctx, name) ?: vars[name] ?: ""
+                        val parts = if (sep.isEmpty()) cur.map { it.toString() }
+                        else cur.split(sep)
+                        parts.forEachIndexed { i, p ->
+                            val k = name + (i + 1)
+                            UserVars.set(ctx, k, p)
+                            vars[k] = p
+                        }
+                        EventLog.push("[${profile.name}] split %$name -> ${parts.size} part(s)")
+                    }
+                }
+
+                Actions.VAR_JOIN -> {
+                    val base = Vars.resolve(a.value, vars).trim()
+                    val joiner = Vars.resolve(a.extra, vars).ifBlank { "," }
+                    val max = a.extra2.toIntOrNull() ?: Int.MAX_VALUE
+                    if (base.isNotBlank()) {
+                        val parts = mutableListOf<String>()
+                        var i = 1
+                        while (i <= max && parts.size < 1000) {
+                            val v = UserVars.get(ctx, base + i) ?: vars[base + i]
+                            if (v == null) break
+                            parts.add(v)
+                            i++
+                        }
+                        val joined = parts.joinToString(joiner)
+                        UserVars.set(ctx, base, joined)
+                        vars[base] = joined
+                        EventLog.push("[${profile.name}] joined %$base from ${parts.size} part(s)")
+                    }
+                }
+
+                Actions.VAR_QUERY -> {
+                    val name = Vars.resolve(a.value, vars).trim()
+                    val target = Vars.resolve(a.extra, vars).trim()
+                    val dflt = Vars.resolve(a.extra2, vars)
+                    val v = UserVars.get(ctx, name) ?: vars[name] ?: dflt
+                    if (target.isNotBlank()) {
+                        UserVars.set(ctx, target, v ?: "")
+                        vars[target] = v ?: ""
+                        EventLog.push("[${profile.name}] query %$name -> %$target")
+                    } else {
+                        EventLog.push("[${profile.name}] %$name = ${v ?: "(unset)"}")
+                    }
+                }
+
+                Actions.WIFI_ON -> systemToggle(ctx, profile, "svc wifi enable", "wifi on", attempts)
+                Actions.WIFI_OFF -> systemToggle(ctx, profile, "svc wifi disable", "wifi off", attempts)
+                Actions.BT_ON -> systemToggle(ctx, profile, "svc bluetooth enable", "bluetooth on", attempts)
+                Actions.BT_OFF -> systemToggle(ctx, profile, "svc bluetooth disable", "bluetooth off", attempts)
+                Actions.DATA_ON -> systemToggle(ctx, profile, "svc data enable", "mobile data on", attempts)
+                Actions.DATA_OFF -> systemToggle(ctx, profile, "svc data disable", "mobile data off", attempts)
+                Actions.DISPLAY_ON -> systemToggle(ctx, profile, "input keyevent KEYCODE_WAKEUP", "display on", attempts)
+                Actions.DISPLAY_OFF -> systemToggle(ctx, profile, "input keyevent KEYCODE_POWER", "display off", attempts)
+                Actions.ROTATE_ON -> systemToggle(ctx, profile, "settings put system accelerometer_rotation 1", "auto-rotate on", attempts)
+                Actions.ROTATE_OFF -> systemToggle(ctx, profile, "settings put system accelerometer_rotation 0", "auto-rotate off", attempts)
             }
         } catch (e: Exception) {
             Log.w(TAG, "action ${a.type} failed", e)
         }
+    }
+
+    /**
+     * Runs a shell-level system toggle (root preferred; `svc`/`input`/`settings`
+     * need su or a privileged shell). Runs on a worker thread like the root action.
+     */
+    private fun systemToggle(
+        ctx: Context, profile: Profile, cmd: String, label: String, attempts: Int
+    ) {
+        Thread {
+            retry(attempts, label, profile.name) {
+                try {
+                    val out = RootBridge.execute(cmd)
+                    EventLog.push("[${profile.name}] $label -> ${out?.trim()?.take(80) ?: "ok"}")
+                    out == null || !out.startsWith("exit=")
+                } catch (e: Exception) {
+                    Log.w(TAG, "$label failed", e)
+                    false
+                }
+            }
+        }.start()
     }
 
     /**
@@ -314,3 +573,6 @@ object Dispatcher {
         }
     }
 }
+
+/** A running For loop: start action index + remaining values + loop variable. */
+private data class ForFrame(val start: Int, val iter: Iterator<String>, val varName: String)

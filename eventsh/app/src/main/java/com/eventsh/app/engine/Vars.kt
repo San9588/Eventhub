@@ -33,9 +33,16 @@ object Vars {
         return m
     }
 
+    /**
+     * Resolves %NAME% (and bare %NAME when followed by a non-word char) from
+     * the variable map, longest names first so %FOO doesn't collide with %FOOBAR.
+     */
     fun resolve(template: String, vars: Map<String, String>): String {
         var s = template
-        for ((k, v) in vars) s = s.replace("%$k%", v)
+        for ((k, v) in vars.entries.sortedByDescending { it.key.length }) {
+            s = s.replace("%${k}%", v)
+            s = s.replace(Regex("%${Regex.escape(k)}(?![A-Za-z0-9_])"), v)
+        }
         return s
     }
 
