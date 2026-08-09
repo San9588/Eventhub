@@ -103,8 +103,7 @@ private fun readLimited(s: java.io.InputStream): String {
  */
 internal fun termuxTask(
     ctx: Context, taskName: String, vars: Map<String, String>
-): Boolean {
-    try {
+): Boolean = try {
         ctx.packageManager.getPackageInfo("com.termux", 0)
         val home = "/data/data/com.termux/files/home"
         val i = Intent("com.termux.RUN_COMMAND").apply {
@@ -132,7 +131,6 @@ internal fun termuxTask(
         Log.w(Dispatcher.TAG, "termux RUN_COMMAND failed", e)
         false
     }
-}
 
 /**
  * Runs a system toggle (wifi / bluetooth / data / display / rotate).
