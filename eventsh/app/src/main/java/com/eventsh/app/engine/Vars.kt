@@ -36,14 +36,49 @@ object Vars {
     /**
      * Resolves %NAME% (and bare %NAME when followed by a non-word char) from
      * the variable map, longest names first so %FOO doesn't collide with %FOOBAR.
+     * Tasker-style array selectors are handled first:
+     *   %name(#)  -> element count
+     *   %name(-n) -> nth element from the end (-1 = last)
      */
     fun resolve(template: String, vars: Map<String, String>): String {
         var s = template
+        if (s.contains('(')) s = applyArraySelectors(s, vars)
         for ((k, v) in vars.entries.sortedByDescending { it.key.length }) {
             s = s.replace("%${k}%", v)
             s = s.replace(Regex("%${Regex.escape(k)}(?![A-Za-z0-9_])"), v)
         }
         return s
+    }
+
+    /** Resolves `%name(#)` (count) and `%name(-n)` (nth from end) selectors. */
+    private fun applyArraySelectors(s: String, vars: Map<String, String>): String {
+        val re = Regex("%([A-Za-z0-9_]+)\\((#|-\\d+)\\)")
+        val matches = re.findAll(s).toList().sortedByDescending { it.value.length }
+        var out = s
+        for (m in matches) {
+            val name = m.groupValues[1]
+            val sel = m.groupValues[2]
+            val els = arrayElements(name, vars)
+            val rep = if (sel == "#") els.size.toString()
+            else {
+                val idx = sel.toInt()
+                els.getOrNull(if (idx < 0) els.size + idx else idx - 1) ?: ""
+            }
+            out = out.replace(m.value, rep)
+        }
+        return out
+    }
+
+    /** 1-based array elements from the vars map, falling back to the comma-joined base. */
+    private fun arrayElements(name: String, vars: Map<String, String>): List<String> {
+        val out = mutableListOf<String>()
+        var i = 1
+        while (vars.containsKey(name + i)) {
+            out.add(vars[name + i] ?: "")
+            i++
+        }
+        if (out.isNotEmpty()) return out
+        return (vars[name] ?: "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
     }
 
     private fun wifiConnected(ctx: Context): Boolean {

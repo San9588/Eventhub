@@ -137,10 +137,10 @@ internal fun execute(
             Actions.VAR_SET -> {
                 val name = Vars.resolve(a.value, vars).trim()
                 val valExpr = Vars.resolve(a.extra, vars)
-                val append = a.extra2.equals("append", true)
+                val (append, sep) = Actions.appendCfg(a.extra2)
                 if (name.isNotBlank()) {
                     val cur = UserVars.get(ctx, name) ?: vars[name]
-                    val result = if (append) (cur ?: "") + valExpr else (MathExpr.tryEval(valExpr) ?: valExpr)
+                    val result = if (append) (cur ?: "") + sep + valExpr else (MathExpr.tryEval(valExpr) ?: valExpr)
                     UserVars.set(ctx, name, result)
                     vars[name] = result
                     EventLog.push("[${profile.name}] var %$name = $result")
@@ -204,9 +204,11 @@ internal fun execute(
             Actions.ARRAY_SET -> {
                 val name = Vars.resolve(a.value, vars).trim().removePrefix("%")
                 if (name.isNotBlank()) {
+                    val (append, sep) = Actions.appendCfg(a.extra2)
                     val list = parseValueList(a.extra, vars)
-                    writeArray(ctx, vars, name, list)
-                    EventLog.push("[${profile.name}] array %$name set (${list.size})")
+                    val out = if (append) readArray(ctx, vars, name) + list else list
+                    writeArray(ctx, vars, name, out, sep.ifBlank { "," })
+                    EventLog.push("[${profile.name}] array %$name ${if (append) "append" else "set"} (${out.size})")
                     true
                 } else false
             }

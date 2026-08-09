@@ -35,13 +35,18 @@ data class Action(
             "HTTP $m ${value.ifBlank { "(url)" }} -> %${saved.resultVar.ifBlank { "http_result" }}" +
                 (if (saved.saveFile.isNotBlank()) "  [+file]" else "")
         }
-        Actions.VAR_SET ->
+        Actions.VAR_SET -> {
+            val (app, sep) = Actions.appendCfg(extra2)
             "Set %$value = ${extra.ifBlank { "(value)" }}" +
-                (if (extra2.equals("append", true)) "  (append)" else "")
+                (if (app) "  (append${if (sep.isBlank()) "" else " '$sep'"})" else "")
+        }
         Actions.VAR_SPLIT -> "Split %$value by '${extra.ifBlank { "," }}'"
         Actions.VAR_JOIN -> "Join %${value}1.." + (if (extra.isBlank()) "" else "  joiner: $extra")
         Actions.VAR_QUERY -> "Query %$value" + (if (extra.isBlank()) "" else "  -> %$extra")
-        Actions.ARRAY_SET -> "Set %$value = ${extra.ifBlank { "(values)" }}"
+        Actions.ARRAY_SET -> {
+            val (app, _) = Actions.appendCfg(extra2)
+            "Set %$value = ${extra.ifBlank { "(values)" }}" + (if (app) "  (+append)" else "")
+        }
         Actions.ARRAY_PUSH -> "Push into %$value" + (if (extra.isBlank()) "" else ": ${extra.take(40)}")
         Actions.ARRAY_PROCESS -> "Process %$value" + (if (extra.isBlank()) "" else "  (${extra})")
         Actions.ARRAY_POP -> "Pop %$value" + (if (extra2.isBlank()) "" else "  -> %$extra2")
@@ -466,4 +471,19 @@ object Actions {
         .put("save", cfg.saveFile)
         .put("redirect", cfg.followRedirects)
         .toString()
+
+    // ------------------------------------------------------------- append
+    /**
+     * Parses the "append" config packed into [Action.extra2] for Variable Set /
+     * Array Set. Returns (append?, splitter). A legacy `extra2 == "append"`
+     * means append with no splitter.
+     */
+    fun appendCfg(extra2: String): Pair<Boolean, String> =
+        if (extra2 == "append") true to ""
+        else if (extra2.startsWith("append|")) true to extra2.substring("append|".length)
+        else false to ""
+
+    /** Encodes append + splitter into extra2; a blank splitter keeps legacy `append`. */
+    fun appendEncode(splitter: String): String =
+        "append" + if (splitter.isBlank()) "" else "|$splitter"
 }

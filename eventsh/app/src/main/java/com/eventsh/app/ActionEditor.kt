@@ -406,6 +406,7 @@ object ActionEditor {
         var extraEt: EditText? = null
         var extra2Et: EditText? = null
         var appendCb: CheckBox? = null
+        var appendSepEt: EditText? = null
         var suCb: CheckBox? = null
 
         val labelEt = editText(a, "label (optional, Goto can jump to it)").apply {
@@ -418,9 +419,16 @@ object ActionEditor {
             valueEt = editText(a, vh).apply { setText(existing.value) }
             ll.addView(valueEt)
         }
-        if (type == Actions.VAR_SET) {
-            appendCb = checkBox(a, "append to existing value").apply { isChecked = existing.extra2 == "append" }
+        if (type == Actions.VAR_SET || type == Actions.ARRAY_SET) {
+            val (wasAppend, wasSep) = Actions.appendCfg(existing.extra2)
+            appendCb = checkBox(a, "append to existing value").apply { isChecked = wasAppend }
             ll.addView(appendCb)
+            appendSepEt = editText(a, "").apply { setText(wasSep) }
+            ll.addView(appendSepEt)
+            appendCb.setOnCheckedChangeListener { _, isChecked ->
+                appendSepEt?.visibility = if (isChecked) View.VISIBLE else View.GONE
+            }
+            appendSepEt.visibility = if (appendCb.isChecked) View.VISIBLE else View.GONE
         }
         if (eh != null) {
             extraEt = editText(a, eh).apply { setText(existing.extra) }
@@ -482,7 +490,8 @@ object ActionEditor {
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
                 val extra2 = when {
-                    type == Actions.VAR_SET -> if (appendCb?.isChecked == true) "append" else ""
+                    type == Actions.VAR_SET || type == Actions.ARRAY_SET ->
+                        if (appendCb?.isChecked == true) Actions.appendEncode(appendSepEt?.text?.toString() ?: "") else ""
                     suCb != null -> if (suCb!!.isChecked) "su" else ""
                     else -> extra2Et?.text?.toString() ?: ""
                 }

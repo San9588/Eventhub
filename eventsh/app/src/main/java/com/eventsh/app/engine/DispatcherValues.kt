@@ -96,7 +96,13 @@ internal fun readArray(ctx: Context, vars: Map<String, String>, name: String): L
 }
 
 /** Writes a 1-based array, keeps the base var in sync and clears leftovers. */
-internal fun writeArray(ctx: Context, vars: MutableMap<String, String>, name: String, list: List<String>) {
+internal fun writeArray(
+    ctx: Context,
+    vars: MutableMap<String, String>,
+    name: String,
+    list: List<String>,
+    splitter: String = ","
+) {
     list.forEachIndexed { i, v ->
         val k = name + (i + 1)
         UserVars.set(ctx, k, v)
@@ -111,7 +117,7 @@ internal fun writeArray(ctx: Context, vars: MutableMap<String, String>, name: St
         if (inDisk != null) UserVars.remove(ctx, k)
         i++
     }
-    val base = list.joinToString(",")
+    val base = list.joinToString(splitter)
     UserVars.set(ctx, name, base)
     vars[name] = base
 }
