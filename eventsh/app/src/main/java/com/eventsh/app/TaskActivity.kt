@@ -2,16 +2,17 @@ package com.eventsh.app
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.ClipData
 import android.content.Intent
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
-import android.view.View.DragShadowBuilder
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
@@ -40,38 +41,17 @@ class TaskActivity : Activity() {
     private lateinit var rtEt: EditText
     private lateinit var enSwitch: Switch
     private lateinit var actBox: LinearLayout
-    private var scroll: ScrollView? = null
 
     // live run (green = ok / red = failed) state, in-memory only
     private val runMarks = mutableMapOf<Int, Int>()
     private var runRunning = false
-    private lateinit var runBtn: TextView
+    private lateinit var runBtn: ImageView
     private val runHandler = Handler(Looper.getMainLooper())
 
-    // long-press drag-and-drop reorder state
-    private var dragIndex = -1
-    private var lastDragY = 0f
-    private var dragActive = false
-    private val dragHandler = Handler(Looper.getMainLooper())
-    private val dragScroll = object : Runnable {
-        override fun run() {
-            if (!dragActive) return
-            val sv = scroll ?: return
-            val loc = IntArray(2)
-            actBox.getLocationOnScreen(loc)
-            val gy = loc[1] + lastDragY
-            val rect = android.graphics.Rect()
-            sv.getGlobalVisibleRect(rect)
-            val zone = dp(70f)
-            val delta = when {
-                gy < rect.top + zone -> -dp(28f)
-                gy > rect.bottom - zone -> dp(28f)
-                else -> 0
-            }
-            if (delta != 0) sv.scrollBy(0, delta)
-            dragHandler.postDelayed(this, 16L)
-        }
-    }
+    // long-press multi-select state
+    private val selected = mutableSetOf<Int>()
+    private var selectionMode = false
+    private lateinit var selDeleteBtn: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,7 +67,23 @@ class TaskActivity : Activity() {
         root.addView(buildTopBar())
         root.addView(buildBody(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(buildBottomBar())
-        setContentView(root)
+
+        val frame = FrameLayout(this)
+        frame.addView(root)
+        runBtn = buildRunFab()
+        frame.addView(
+            runBtn,
+            FrameLayout.LayoutParams(dp(56f), dp(56f), Gravity.BOTTOM or Gravity.END).apply {
+                marginEnd = dp(16f)
+                marginBottom = dp(84f)
+            }
+        )
+        setContentView(frame)
+
+        if (Dispatcher.isTaskRunning(runId())) {
+            runRunning = true
+            setRunButton(true)
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -118,12 +114,23 @@ class TaskActivity : Activity() {
                 marginStart = dp(4f)
             }
         )
+        selDeleteBtn = TextView(this).apply {
+            text = "DELETE"
+            textSize = 15f
+            boldText()
+            setTextColor(C.danger)
+            setPadding(dp(8f), dp(6f), dp(8f), dp(6f))
+            visibility = View.GONE
+            setOnClickListener { deleteSelected() }
+        }
+        bar.addView(selDeleteBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginEnd = dp(4f)
+        })
         return bar
     }
 
     private fun buildBody(): View {
         val scroll = ScrollView(this).apply { setBackgroundColor(C.bg) }
-        this.scroll = scroll
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12f), dp(4f), dp(12f), dp(16f))
@@ -153,12 +160,7 @@ class TaskActivity : Activity() {
         ll.addView(ActionEditor.sectionLabel(this, "FAILURE"))
         ll.addView(rtEt)
 
-        ll.addView(ActionEditor.sectionLabel(this, "ACTIONS (tap row = edit; long-press + drag = reorder)"))
-        ll.addView(buildRunBar())
-        if (Dispatcher.isTaskRunning(runId())) {
-            runRunning = true
-            setRunButton(true)
-        }
+        ll.addView(ActionEditor.sectionLabel(this, "ACTIONS"))
         actBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         refreshActs()
         ll.addView(actBox)
@@ -195,7 +197,7 @@ class TaskActivity : Activity() {
                 )
             }
         })
-        setupDragListener()
+        updateSelUi()
     }
 
     /** Builds one action tile: order number on the left, content, status dot, drag grip. */
@@ -205,40 +207,35 @@ class TaskActivity : Activity() {
         val labelPrefix = if (a.label.isBlank()) "" else "{${a.label}}  "
         val text = "$labelPrefix${a.typeLabel()}  ${a.summary()}" +
             (if (condLine.isNullOrBlank()) "" else "   [IF $condLine]")
-        val border = when (runMarks[i]) {
-            ST_OK -> C.ok
-            ST_FAIL -> C.danger
-            ST_RUN -> C.accent
+        val isSel = selected.contains(i)
+        val border = when {
+            isSel -> C.primary
+            runMarks[i] == ST_OK -> C.ok
+            runMarks[i] == ST_FAIL -> C.danger
+            runMarks[i] == ST_RUN -> C.accent
             else -> C.border
         }
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = UI.rounded(C.card, 10f, border, 1f)
+            background = UI.rounded(if (isSel) C.primarySoft else C.card, 10f, border, if (isSel) 2f else 1f)
             setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             isClickable = true
             isLongClickable = true
             setOnClickListener {
-                ActionEditor.actionDialog(
-                    this@TaskActivity, a,
-                    onSave = { na -> actions[i] = na; runMarks.clear(); refreshActs() },
-                    onRemove = { actions.removeAt(i); runMarks.clear(); refreshActs() }
-                )
-            }
-            setOnLongClickListener { v ->
-                dragIndex = i
-                dragActive = true
-                lastDragY = 0f
-                val ok = v.startDragAndDrop(
-                    ClipData.newPlainText("reorder", ""),
-                    DragShadowBuilder(v),
-                    i,
-                    0
-                )
-                if (!ok) {
-                    dragActive = false
-                    dragIndex = -1
+                if (selectionMode) {
+                    toggleSelect(i)
+                } else {
+                    ActionEditor.actionDialog(
+                        this@TaskActivity, a,
+                        onSave = { na -> actions[i] = na; runMarks.clear(); refreshActs() },
+                        onRemove = { actions.removeAt(i); runMarks.clear(); refreshActs() }
+                    )
                 }
+            }
+            setOnLongClickListener {
+                if (!selectionMode) selectionMode = true
+                toggleSelect(i)
                 true
             }
         }
@@ -277,86 +274,15 @@ class TaskActivity : Activity() {
         }
     }
 
-    /** Rebuilds rows in place as the dragged tile crosses boundaries. */
-    private fun setupDragListener() {
-        actBox.setOnDragListener { _, e ->
-            when (e.action) {
-                DRAG_STARTED -> {
-                    dragIndex = (e.localState as? Int) ?: -1
-                    true
-                }
-                DRAG_LOCATION -> {
-                    lastDragY = e.y
-                    if (!dragActive) {
-                        dragActive = true
-                        dragHandler.post(dragScroll)
-                    }
-                    val t = dropTargetFor(e.y)
-                    if (t != dragIndex && dragIndex in actions.indices) {
-                        val newIdx = if (t > dragIndex) t - 1 else t
-                        reorder(dragIndex, t)
-                        dragIndex = newIdx
-                        refreshActs()
-                    }
-                    true
-                }
-                DRAG_DROP -> true
-                DRAG_ENDED -> {
-                    dragActive = false
-                    dragHandler.removeCallbacks(dragScroll)
-                    dragIndex = -1
-                    true
-                }
-                else -> true
-            }
-        }
-    }
-
-    /** Insertion index for a drop at [y] (actBox-local): before the middle of a tile. */
-    private fun dropTargetFor(y: Float): Int {
-        var acc = 0f
-        for (i in 0 until actBox.childCount) {
-            val c = actBox.getChildAt(i)
-            val idx = c.tag as? Int ?: continue
-            if (idx !in actions.indices) continue
-            val h = c.height
-            if (y < acc + h / 2f) return idx
-            acc += h
-        }
-        return actions.size
-    }
-
-    /** Moves the action at [from] to the insertion index [to] (0..size). */
-    private fun reorder(from: Int, to: Int) {
-        if (to < 0 || to > actions.size || to == from) return
-        val moved = actions.removeAt(from)
-        actions.add(if (to > from) to - 1 else to, moved)
-    }
-
-    /** RUN / STOP control shown right inside the actions list. */
-    private fun buildRunBar(): View {
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4f), dp(2f), dp(4f), dp(6f))
-        }
-        runBtn = TextView(this).apply {
-            text = "RUN TASK"
-            textSize = 15f
-            setTextColor(C.onPrimary)
-            gravity = Gravity.CENTER
-            boldText()
-            setPadding(dp(14f), dp(11f), dp(14f), dp(11f))
-            background = UI.rounded(C.primary, 12f)
-            setOnClickListener { onRunTap() }
-        }
-        bar.addView(runBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginEnd = dp(10f)
-        })
-        bar.addView(
-            UI.text(this, "runs every action, marks it green (ok) or red (failed)", 12f, C.hint)
-        )
-        return bar
+    /** Round play / stop FAB docked above the bottom save/delete bar. */
+    private fun buildRunFab(): ImageView = ImageView(this).apply {
+        background = ovalBg(C.primary)
+        setColorFilter(C.onPrimary)
+        setPadding(dp(18f), dp(18f), dp(18f), dp(18f))
+        elevation = dp(6f).toFloat()
+        contentDescription = "Run task"
+        setOnClickListener { onRunTap() }
+        setImageResource(R.drawable.ic_play)
     }
 
     private fun onRunTap() {
@@ -406,9 +332,35 @@ class TaskActivity : Activity() {
     }
 
     private fun setRunButton(running: Boolean) {
-        runBtn.text = if (running) "STOP" else "RUN TASK"
-        runBtn.setTextColor(if (running) C.text else C.onPrimary)
-        runBtn.background = UI.rounded(if (running) C.danger else C.primary, 12f)
+        runBtn.setImageResource(if (running) R.drawable.ic_stop else R.drawable.ic_play)
+        runBtn.background = ovalBg(if (running) C.danger else C.primary)
+    }
+
+    private fun toggleSelect(i: Int) {
+        if (!selected.add(i)) selected.remove(i)
+        if (selected.isEmpty()) selectionMode = false
+        refreshActs()
+    }
+
+    private fun deleteSelected() {
+        if (selected.isEmpty()) return
+        for (idx in selected.sortedDescending()) {
+            if (idx in actions.indices) actions.removeAt(idx)
+        }
+        selected.clear()
+        selectionMode = false
+        runMarks.clear()
+        refreshActs()
+    }
+
+    private fun updateSelUi() {
+        selDeleteBtn.text = if (selectionMode) "DELETE (${selected.size})" else "DELETE"
+        selDeleteBtn.visibility = if (selectionMode && selected.isNotEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private fun ovalBg(color: Int): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(color)
     }
 
     private fun buildBottomBar(): View {
@@ -481,12 +433,6 @@ class TaskActivity : Activity() {
 
     private fun dp(v: Float): Int = ActionEditor.dp(this, v)
 }
-
-// DragEvent action codes (referenced as plain ints to avoid SDK symbol drift).
-private const val DRAG_STARTED = 1
-private const val DRAG_LOCATION = 2
-private const val DRAG_DROP = 3
-private const val DRAG_ENDED = 4
 
 // Live-run status codes used by TaskActivity.runMarks.
 private const val ST_RUN = 1
