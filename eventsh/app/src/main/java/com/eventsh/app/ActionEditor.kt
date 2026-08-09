@@ -580,7 +580,8 @@ object ActionEditor {
 
         val urlEt = editText(a, "URL  (https://..., %VAR% ok)").apply { setText(existing.value) }
         var method = cfg.method.uppercase().ifBlank { "GET" }
-        val methodTv = ctxRow(a, "METHOD: $method", C.accent) {
+        lateinit var methodTv: TextView
+        methodTv = ctxRow(a, "METHOD: $method", C.accent) {
             val ops = arrayOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD")
             AlertDialog.Builder(a)
                 .setTitle("HTTP METHOD")
