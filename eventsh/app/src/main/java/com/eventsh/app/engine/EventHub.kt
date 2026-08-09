@@ -92,9 +92,10 @@ object EventHub {
         val profiles = Store.cachedProfiles(ctx).filter { p ->
             p.enabled && (
                 p.hasEvent(event) ||
-                    // app-only / var-only profiles: driven by synthetic state events
+                    // app-only / var-only / location-only profiles: driven by synthetic state events
                     (event == "app.state" && p.eventActions.isEmpty() && p.timeCtx == null && p.appCtx != null) ||
-                    (event == "var.state" && p.eventActions.isEmpty() && p.timeCtx == null && p.varCtx != null)
+                    (event == "var.state" && p.eventActions.isEmpty() && p.timeCtx == null && p.varCtx != null) ||
+                    (event == "location.state" && p.eventActions.isEmpty() && p.timeCtx == null && p.locationCtx != null)
                 )
         }
         if (profiles.isEmpty()) return

@@ -15,6 +15,7 @@ import java.util.Calendar
  *  - DayCtx    : days of week and/or days of month
  *  - VarCtx    : user variable value condition (Variable Value state)
  *  - AppCtx    : app / foreground restriction (Application context)
+ *  - LocationCtx : geo-fence (inside a circle) state, Tasker "Location" context
  */
 sealed class Ctx {
     abstract val type: String
@@ -27,6 +28,7 @@ sealed class Ctx {
         const val DAY = "day"
         const val VAR = "var"
         const val APP = "app"
+        const val LOCATION = "location"
 
         fun fromJson(o: JSONObject): Ctx? = when (o.optString("type")) {
             EVENT -> {
@@ -67,6 +69,11 @@ sealed class Ctx {
                 packages = strings(o, "pkgs"),
                 foregroundOnly = o.optBoolean("fgonly", true),
                 invert = o.optBoolean("invert")
+            )
+            LOCATION -> LocationCtx(
+                lat = o.optDouble("lat", 0.0),
+                lon = o.optDouble("lon", 0.0),
+                radiusMeters = o.optDouble("radius", 500.0)
             )
             else -> null
         }
@@ -222,6 +229,30 @@ data class AppCtx(
 }
 
 /**
+ * Geo-fence context. The profile is active while the device is within
+ * [radiusMeters] of (lat, lon). It is a STATE context: the linked task runs
+ * when the device enters the fence (matched via the synthetic `location.state`
+ * event dispatched by [Watchers]). The most recent fix is kept in [Watchers]
+ * so [ContextGate] can gate other triggers on it too.
+ */
+data class LocationCtx(
+    val lat: Double = 0.0,
+    val lon: Double = 0.0,
+    val radiusMeters: Double = 500.0
+) : Ctx() {
+    override val type get() = Ctx.LOCATION
+    override fun summary(): String =
+        String.format(java.util.Locale.US, "%.0fm @ %.5f,%.5f", radiusMeters, lat, lon)
+
+    override fun toJson() = JSONObject().apply {
+        put("type", type)
+        put("lat", lat)
+        put("lon", lon)
+        put("radius", radiusMeters)
+    }
+}
+
+/**
  * Evaluates the non-event contexts of a profile at trigger time.
  * EventCtx is matched by EventHub itself; the others are AND gates here.
  */
@@ -232,6 +263,7 @@ object ContextGate {
         profile.dayCtx?.let { if (!dayMatch(it, Calendar.getInstance())) return false }
         profile.varCtx?.let { if (!varMatch(ctx, it)) return false }
         profile.appCtx?.let { if (!appMatch(it, data, ctx)) return false }
+        profile.locationCtx?.let { if (!locationMatch(it)) return false }
         return true
     }
 
@@ -271,6 +303,23 @@ object ContextGate {
         // apps; invert: match any app EXCEPT listed ones.
         val inList = pkg != null && ac.packages.contains(pkg)
         return if (ac.invert) !inList else inList
+    }
+
+    /** True when the last known fix is inside the [lc] fence (no fix => false). */
+    fun locationMatch(lc: LocationCtx): Boolean {
+        val cur = Watchers.currentLoc() ?: return false
+        return haversineM(cur[0], cur[1], lc.lat, lc.lon) <= lc.radiusMeters
+    }
+
+    /** Great-circle distance in meters between two lat/lon points. */
+    fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        return 2 * r * Math.asin(Math.sqrt(a.coerceIn(0.0, 1.0)))
     }
 
     /** Tasker-style simple matching: `*` any, `+` at least one, `/` OR, `!` NOT. */

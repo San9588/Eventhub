@@ -43,6 +43,7 @@ import com.eventsh.app.engine.EventCtx
 import com.eventsh.app.engine.EventCatalog
 import com.eventsh.app.engine.EventHub
 import com.eventsh.app.engine.EventLog
+import com.eventsh.app.engine.LocationCtx
 import com.eventsh.app.engine.Permissions
 import com.eventsh.app.engine.Profile
 import com.eventsh.app.engine.RootBridge
@@ -53,6 +54,7 @@ import com.eventsh.app.engine.Task
 import com.eventsh.app.engine.TimeCtx
 import com.eventsh.app.engine.UserVars
 import com.eventsh.app.engine.VarCtx
+import com.eventsh.app.engine.Watchers
 import com.eventsh.app.service.EventService
 import com.eventsh.app.ui.C
 import com.eventsh.app.ui.UI
@@ -130,6 +132,7 @@ class MainActivity : Activity() {
     private lateinit var overlayStatusTv: TextView
     private lateinit var exactStatusTv: TextView
     private lateinit var battOptStatusTv: TextView
+    private lateinit var locStatusTv: TextView
 
     private lateinit var profileAdapter: ProfileAdapter
     private lateinit var taskAdapter: TaskAdapter
@@ -468,6 +471,7 @@ class MainActivity : Activity() {
             is DayCtx -> "DY" to C.warning
             is VarCtx -> "VA" to C.warning
             is AppCtx -> "AP" to C.accent
+            is LocationCtx -> "LC" to C.warning
             else -> "??" to C.hint
         }
         return TextView(this).apply {
@@ -727,6 +731,7 @@ class MainActivity : Activity() {
                     marginStart = dp(10f)
                 }
             )
+            header.addView(playStopButton(t))
             header.addView(iconButton(R.drawable.ic_edit, C.textSec, { openTaskEditor(t) }))
             card.addView(header)
 
@@ -754,6 +759,27 @@ class MainActivity : Activity() {
             contentDescription = "action"
             setOnClickListener { onClick() }
         }
+
+    private fun playStopButton(t: Task): View {
+        val running = Dispatcher.isTaskRunning(t.id)
+        return TextView(this).apply {
+            text = if (running) "STOP" else "RUN"
+            textSize = 12f
+            setPadding(dp(10f), dp(4f), dp(10f), dp(4f))
+            setTextColor(if (running) C.danger else C.accent)
+            background = UI.rounded(C.card, 10f, if (running) C.danger else C.accent, 1f)
+            setOnClickListener {
+                if (Dispatcher.isTaskRunning(t.id)) {
+                    Dispatcher.stopTask(t.id)
+                    EventLog.push("[ui] stopping ${t.name}")
+                } else {
+                    EventLog.push("[ui] running ${t.name} (${t.actions.size} actions)")
+                    Dispatcher.runTask(this@MainActivity, t.id)
+                }
+                handler.postDelayed({ refreshScreen() }, 350)
+            }
+        }
+    }
 
     inner class VarAdapter : BaseAdapter() {
         override fun getCount() = userVars.size
@@ -899,6 +925,11 @@ class MainActivity : Activity() {
             ), 20)
         })
         permCard.addView(smsRow.first, matchWrap())
+        val locRow = actionRowContent("Location", "geo-fence triggers (ACCESS_FINE_LOCATION)", {
+            requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION), 31)
+        })
+        locStatusTv = locRow.second
+        permCard.addView(locRow.first, matchWrap())
         root.addView(permCard, matchWrap())
 
         // ---- DATA
@@ -1026,6 +1057,10 @@ class MainActivity : Activity() {
         val battOk = pm.isIgnoringBatteryOptimizations(packageName)
         battOptStatusTv.text = if (battOk) "OK" else "SET"
         battOptStatusTv.setTextColor(if (battOk) C.ok else C.warning)
+        val locOk = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        locStatusTv.text = if (locOk) "OK" else "SET"
+        locStatusTv.setTextColor(if (locOk) C.ok else C.warning)
         if (::aboutText.isInitialized) {
             aboutText.text = "EVENTSH v0.1.0\n$ramText   $cpuText   battery $battText\nprofiles: ${profiles.count { it.enabled }} armed / ${profiles.size}"
         }
@@ -1261,9 +1296,12 @@ class MainActivity : Activity() {
                 val timeCtx = contexts.filterIsInstance<TimeCtx>().firstOrNull()
                 val appCtx = contexts.filterIsInstance<AppCtx>().firstOrNull()
                 val varCtx = contexts.filterIsInstance<VarCtx>().firstOrNull()
+                val locCtx = contexts.filterIsInstance<LocationCtx>().firstOrNull()
                 val isTimer = existing != null && (existing.isOneShotTimer || existing.isDailyTimer)
-                if (eventCtx == null && timeCtx == null && appCtx == null && varCtx == null && !isTimer) {
-                    EventLog.push("[ui] add an EVENT, TIME, APP or VARIABLE trigger")
+                if (eventCtx == null && timeCtx == null && appCtx == null && varCtx == null &&
+                    locCtx == null && !isTimer
+                ) {
+                    EventLog.push("[ui] add an EVENT, TIME, APP, VARIABLE or LOCATION trigger")
                     return@setPositiveButton
                 }
                 val base = existing ?: Profile(
@@ -1363,13 +1401,14 @@ class MainActivity : Activity() {
     private fun addContext(list: MutableList<Ctx>, refresh: () -> Unit) {
         AlertDialog.Builder(this)
             .setTitle("ADD CONTEXT")
-            .setItems(arrayOf("EVENT", "TIME", "DAY", "VARIABLE", "APP")) { _, which ->
+            .setItems(arrayOf("EVENT", "TIME", "DAY", "VARIABLE", "APP", "LOCATION")) { _, which ->
                 when (which) {
                     0 -> eventCtxDialog(null, { list.add(it); refresh() }, null)
                     1 -> timeCtxDialog(null, { list.add(it); refresh() }, null)
                     2 -> dayCtxDialog(null, { list.add(it); refresh() }, null)
                     3 -> varCtxDialog(null, { list.add(it); refresh() }, null)
                     4 -> appCtxDialog(null, { list.add(it); refresh() }, null)
+                    5 -> locationCtxDialog(null, { list.add(it); refresh() }, null)
                 }
             }
             .setNegativeButton("CANCEL", null)
@@ -1383,6 +1422,7 @@ class MainActivity : Activity() {
             is DayCtx -> dayCtxDialog(c, { list[index] = it; refresh() }, { list.removeAt(index); refresh() })
             is VarCtx -> varCtxDialog(c, { list[index] = it; refresh() }, { list.removeAt(index); refresh() })
             is AppCtx -> appCtxDialog(c, { list[index] = it; refresh() }, { list.removeAt(index); refresh() })
+            is LocationCtx -> locationCtxDialog(c, { list[index] = it; refresh() }, { list.removeAt(index); refresh() })
         }
     }
 
@@ -1678,6 +1718,79 @@ class MainActivity : Activity() {
             .setNegativeButton("CANCEL", null)
         if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
         d.show()
+    }
+
+    private fun locationCtxDialog(existing: LocationCtx?, onSave: (LocationCtx) -> Unit, onRemove: (() -> Unit)?) {
+        val latEt = editText("latitude (e.g. 28.6139)")
+        val lonEt = editText("longitude (e.g. 77.2090)")
+        val radEt = editText("radius meters (e.g. 500)")
+        if (existing != null) {
+            latEt.setText(String.format(Locale.US, "%.6f", existing.lat))
+            lonEt.setText(String.format(Locale.US, "%.6f", existing.lon))
+            radEt.setText(existing.radiusMeters.toInt().toString())
+        }
+        val curBtn = ctxRow("USE CURRENT LOCATION", C.accent) {
+            val loc = Watchers.currentLoc()
+                ?: lastKnownLocation()
+            if (loc == null) {
+                if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    EventLog.push("[loc] grant the Location permission first (Settings)")
+                    requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION), 30)
+                } else {
+                    EventLog.push("[loc] no fix yet - open the app, then tap again")
+                }
+            } else {
+                latEt.setText(String.format(Locale.US, "%.6f", loc[0]))
+                lonEt.setText(String.format(Locale.US, "%.6f", loc[1]))
+            }
+        }
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(curBtn)
+            addView(sectionLabel("LATITUDE / LONGITUDE"))
+            addView(latEt)
+            addView(lonEt)
+            addView(sectionLabel("RADIUS"))
+            addView(radEt)
+        }
+        val d = AlertDialog.Builder(this)
+            .setTitle("LOCATION CONTEXT (geo-fence)")
+            .setMessage("profile fires when the device enters this circle. Battery-friendly: the OS batches fixes and nothing fires while you stay inside.")
+            .setView(ll)
+            .setPositiveButton("OK") { _, _ ->
+                val lat = latEt.text.toString().trim().toDoubleOrNull()
+                val lon = lonEt.text.toString().trim().toDoubleOrNull()
+                val rad = radEt.text.toString().trim().toDoubleOrNull()
+                if (lat == null || lon == null || rad == null || rad <= 0) {
+                    EventLog.push("[ui] enter a valid latitude, longitude and radius")
+                    return@setPositiveButton
+                }
+                onSave(LocationCtx(lat, lon, rad))
+            }
+            .setNegativeButton("CANCEL", null)
+        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
+        d.show()
+    }
+
+    /** Last cached fix from any provider, without requesting a fresh one. */
+    private fun lastKnownLocation(): DoubleArray? {
+        return try {
+            if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) null else {
+                val lm = getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+                val gps = lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                val net = lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+                val best = gps ?: net
+                if (best == null) null else doubleArrayOf(best.latitude, best.longitude)
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun appPick(selected: Set<String>, onDone: (List<String>) -> Unit) {

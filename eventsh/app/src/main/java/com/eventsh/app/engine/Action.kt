@@ -27,6 +27,14 @@ data class Action(
         Actions.ROOT -> value.ifBlank { "(empty)" }
         Actions.FLASH -> "Flash ${value.ifBlank { "(text)" }}" +
             (if (extra.isNotBlank()) "  (${extra}s)" else "")
+        Actions.SPEAK -> "Speak ${value.ifBlank { "(text)" }}" +
+            (if (extra.isNotBlank()) "  (pitch $extra)" else "")
+        Actions.HTTP -> {
+            val m = extra.ifBlank { "GET" }.uppercase()
+            val saved = Actions.httpCfg(extra2)
+            "HTTP $m ${value.ifBlank { "(url)" }} -> %${saved.resultVar.ifBlank { "http_result" }}" +
+                (if (saved.saveFile.isNotBlank()) "  [+file]" else "")
+        }
         Actions.VAR_SET ->
             "Set %$value = ${extra.ifBlank { "(value)" }}" +
                 (if (extra2.equals("append", true)) "  (append)" else "")
@@ -206,6 +214,8 @@ object Actions {
     const val NOTIFY = "notify"
     const val ROOT = "root"
     const val FLASH = "flash"
+    const val SPEAK = "speak"
+    const val HTTP = "http"
 
     const val VAR_SET = "var_set"
     const val VAR_SPLIT = "var_split"
@@ -260,6 +270,8 @@ object Actions {
         Def(NOTIFY, "Notify", "TASKER"),
         Def(ROOT, "Root Command", "TASKER"),
         Def(FLASH, "Flash", "TASKER"),
+        Def(SPEAK, "Speak", "TASKER"),
+        Def(HTTP, "HTTP Request", "TASKER"),
         Def(VAR_SET, "Variable Set", "VARIABLE"),
         Def(VAR_SPLIT, "Variable Split", "VARIABLE"),
         Def(VAR_JOIN, "Variable Join", "VARIABLE"),
@@ -364,7 +376,9 @@ object Actions {
         val snoozeMin: Int = 5,
         val vibrate: Boolean = true,
         val sound: String = "",
-        val useSu: Boolean = false
+        val useSu: Boolean = false,
+        /** True = hand the alarm to the system clock app (Tasker's no-root method). */
+        val useSystem: Boolean = true
     )
 
     fun alarmCfg(s: String): AlarmCfg {
@@ -377,6 +391,7 @@ object Actions {
                 "vibrate" -> cfg = cfg.copy(vibrate = kv[1].trim().toIntOrNull() == 1)
                 "sound" -> cfg = cfg.copy(sound = kv[1].trim())
                 "su" -> cfg = cfg.copy(useSu = kv[1].trim().toIntOrNull() == 1)
+                "sys" -> cfg = cfg.copy(useSystem = kv[1].trim().toIntOrNull() != 0)
             }
         }
         return cfg
@@ -386,6 +401,78 @@ object Actions {
         "snooze=${cfg.snoozeMin}",
         "vibrate=${if (cfg.vibrate) 1 else 0}",
         "sound=${cfg.sound}",
-        "su=${if (cfg.useSu) 1 else 0}"
+        "su=${if (cfg.useSu) 1 else 0}",
+        "sys=${if (cfg.useSystem) 1 else 0}"
     ).joinToString(",")
+
+    // ------------------------------------------------------------- http
+    /**
+     * Parsed configuration of a "HTTP Request" action, packed into [Action.extra2].
+     * Encoded as JSON so freeform fields (headers/body/query) with commas or
+     * equals signs survive round-tripping; the old comma list is still parsed
+     * for backward compatibility.
+     */
+    data class HttpCfg(
+        val method: String = "GET",
+        val headers: String = "",
+        val contentType: String = "",
+        val body: String = "",
+        val query: String = "",
+        val timeoutSec: Int = 15,
+        val resultVar: String = "http_result",
+        val saveFile: String = "",
+        val followRedirects: Boolean = true
+    )
+
+    fun httpCfg(s: String): HttpCfg {
+        var cfg = HttpCfg()
+        val t = s.trim()
+        if (t.startsWith("{")) {
+            try {
+                val o = org.json.JSONObject(t)
+                cfg = cfg.copy(
+                    method = o.optString("method", cfg.method).ifBlank { "GET" },
+                    headers = o.optString("headers", cfg.headers),
+                    contentType = o.optString("ctype", cfg.contentType),
+                    body = o.optString("body", cfg.body),
+                    query = o.optString("query", cfg.query),
+                    timeoutSec = o.optInt("timeout", cfg.timeoutSec).coerceIn(1, 120),
+                    resultVar = o.optString("result", cfg.resultVar).ifBlank { "http_result" },
+                    saveFile = o.optString("save", cfg.saveFile),
+                    followRedirects = if (o.has("redirect")) o.optBoolean("redirect") else cfg.followRedirects
+                )
+                return cfg
+            } catch (e: Exception) {
+                cfg = HttpCfg()
+            }
+        }
+        for (raw in t.split(",")) {
+            val kv = raw.split("=", limit = 2)
+            if (kv.size != 2) continue
+            when (kv[0].trim()) {
+                "method" -> cfg = cfg.copy(method = kv[1].trim().ifBlank { "GET" })
+                "headers" -> cfg = cfg.copy(headers = kv[1].trim())
+                "ctype" -> cfg = cfg.copy(contentType = kv[1].trim())
+                "body" -> cfg = cfg.copy(body = kv[1].trim())
+                "query" -> cfg = cfg.copy(query = kv[1].trim())
+                "timeout" -> cfg = cfg.copy(timeoutSec = (kv[1].trim().toIntOrNull() ?: 15).coerceIn(1, 120))
+                "result" -> cfg = cfg.copy(resultVar = kv[1].trim().ifBlank { "http_result" })
+                "save" -> cfg = cfg.copy(saveFile = kv[1].trim())
+                "redirect" -> cfg = cfg.copy(followRedirects = kv[1].trim().toIntOrNull() != 0)
+            }
+        }
+        return cfg
+    }
+
+    fun httpEncode(cfg: HttpCfg): String = org.json.JSONObject()
+        .put("method", cfg.method.uppercase())
+        .put("headers", cfg.headers)
+        .put("ctype", cfg.contentType)
+        .put("body", cfg.body)
+        .put("query", cfg.query)
+        .put("timeout", cfg.timeoutSec)
+        .put("result", cfg.resultVar)
+        .put("save", cfg.saveFile)
+        .put("redirect", cfg.followRedirects)
+        .toString()
 }

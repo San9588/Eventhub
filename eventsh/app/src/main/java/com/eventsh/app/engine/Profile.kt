@@ -28,8 +28,9 @@ data class Profile(
     val dayCtx: DayCtx? get() = contexts.filterIsInstance<DayCtx>().firstOrNull()
     val varCtx: VarCtx? get() = contexts.filterIsInstance<VarCtx>().firstOrNull()
     val appCtx: AppCtx? get() = contexts.filterIsInstance<AppCtx>().firstOrNull()
+    val locationCtx: LocationCtx? get() = contexts.filterIsInstance<LocationCtx>().firstOrNull()
 
-    val hasTrigger: Boolean get() = eventActions.isNotEmpty() || timeCtx != null || appCtx != null || varCtx != null
+    val hasTrigger: Boolean get() = eventActions.isNotEmpty() || timeCtx != null || appCtx != null || varCtx != null || locationCtx != null
 
     /** All broadcast event names this profile listens for (from every EventCtx). */
     val eventActions: List<String> get() = contexts.filterIsInstance<EventCtx>().map { it.action }

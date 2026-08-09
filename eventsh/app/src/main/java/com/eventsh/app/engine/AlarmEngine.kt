@@ -194,6 +194,39 @@ object AlarmEngine {
         }.start()
     }
 
+    /**
+     * Sets a real system alarm WITHOUT root, exactly how Tasker does it:
+     * fires the standard [android.provider.AlarmClock.ACTION_SET_ALARM] intent
+     * (with SKIP_UI, the clock app sets it silently) and lets the system clock
+     * ring it reliably - no exact-alarm permission, Doze immunity or OEM
+     * restrictions needed. Falls back to the in-app [setAlarm] when the intent
+     * cannot be delivered (missing clock app / blocked).
+     */
+    fun setAlarmSystem(
+        ctx: Context, label: String, hour: Int, minute: Int, cfg: Actions.AlarmCfg
+    ) {
+        Thread {
+            try {
+                val i = Intent(android.provider.AlarmClock.ACTION_SET_ALARM).apply {
+                    putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
+                    putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
+                    putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
+                    putExtra(android.provider.AlarmClock.EXTRA_VIBRATE, cfg.vibrate)
+                    if (label.isNotBlank()) {
+                        putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, label)
+                    }
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                ctx.startActivity(i)
+                EventLog.push("[alarm] system clock: '$label' set at ${String.format("%02d:%02d", hour, minute)} (no root)")
+            } catch (e: Exception) {
+                EventLog.push("[alarm] system clock unavailable (${e.message?.take(40) ?: "no clock app"}) - using in-app alarm")
+                Log.w(TAG, "system clock alarm failed", e)
+                setAlarm(ctx, label, hour, minute, cfg)
+            }
+        }.start()
+    }
+
     /** Cancels scheduled alarms; blank [label] cancels every alarm. */
     fun cancel(ctx: Context, label: String) {
         val now = System.currentTimeMillis()

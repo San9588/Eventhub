@@ -120,6 +120,12 @@ object Permissions {
                 Kind.RUNTIME, permission = android.Manifest.permission.POST_NOTIFICATIONS
             )
         }
+        if (profile.locationCtx != null) {
+            out += Need(
+                "location", "Location", "Geo-fence / location triggers",
+                Kind.RUNTIME, permission = android.Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        }
         return out
     }
 }

@@ -41,6 +41,7 @@ object EventCatalog {
         "file_moved",
         "file_attr",
         "music_track",
+        "location.state",
         "timer.one",
         "timer.daily",
         "shell_event"

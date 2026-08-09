@@ -28,6 +28,43 @@ object Dispatcher {
     /** Per-task abort flags: set by Stop / Task Stop, cleared when a task starts. */
     private val stopFlags = ConcurrentHashMap<String, AtomicBoolean>()
 
+    /** Tasks currently running via the Tasks-tab Play button. */
+    private val manualRuns = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Runs a task's actions standalone (Tasks-tab Play button), outside any
+     * profile trigger. Returns false when the task is missing or already
+     * running. Execution happens on a worker thread so the UI never blocks.
+     */
+    fun runTask(ctx: Context, taskId: String): Boolean {
+        val task = Store.tasks(ctx).find { it.id == taskId } ?: return false
+        if (!manualRuns.add(taskId)) return false
+        Thread {
+            try {
+                val vars = Vars.all(ctx, "manual", mapOf("summary" to task.name))
+                val pseudo = Profile(id = task.id, name = task.name, taskId = task.id)
+                EventLog.push("[${task.name}] manual run started")
+                runActions(ctx, pseudo, task, vars, 1, "manual", task.name)
+            } catch (e: Exception) {
+                Log.w(TAG, "manual task run failed", e)
+            } finally {
+                manualRuns.remove(taskId)
+                EventLog.push("[${task.name}] manual run finished")
+            }
+        }.apply { name = "eventsh-run"; start() }
+        return true
+    }
+
+    /** Stops a task started via the Play button (and its Task Stop target). */
+    fun stopTask(taskId: String) {
+        stopFlags[taskId]?.set(true)
+        manualRuns.remove(taskId)
+        EventLog.push("[task] stop requested")
+    }
+
+    /** True while a task is running via the Play button. */
+    fun isTaskRunning(taskId: String): Boolean = taskId in manualRuns
+
     fun ensureChannel(ctx: Context) {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             val ch = NotificationChannel(
@@ -406,6 +443,38 @@ object Dispatcher {
                     EventLog.push("[${profile.name}] flash: ${text.take(80)}")
                 }
 
+                Actions.SPEAK -> if (a.value.isNotBlank()) {
+                    val text = Vars.resolve(a.value, vars)
+                    val pitch = Vars.resolve(a.extra, vars).toFloatOrNull() ?: 1f
+                    val rate = Vars.resolve(a.extra2, vars).toFloatOrNull() ?: 1f
+                    val ok = Tts.speak(ctx, text, pitch, rate)
+                    EventLog.push("[${profile.name}] speak -> ${if (ok) "ok" else "failed"}")
+                }
+
+                Actions.HTTP -> if (a.value.isNotBlank()) {
+                    val cfg = Actions.httpCfg(a.extra2)
+                    retry(attempts, "http", profile.name) {
+                        try {
+                            val res = HttpApi.execute(ctx, a.value, cfg, vars)
+                            val resultVar = cfg.resultVar.trim().removePrefix("%")
+                                .ifBlank { "http_result" }
+                            UserVars.set(ctx, resultVar, res.body)
+                            vars[resultVar] = res.body
+                            UserVars.set(ctx, "http_code", res.code.toString())
+                            vars["http_code"] = res.code.toString()
+                            EventLog.push(
+                                "[${profile.name}] http ${Vars.resolve(cfg.method, vars).uppercase()} -> " +
+                                    "${res.code} (${res.body.length} chars) saved to %$resultVar"
+                            )
+                            true
+                        } catch (e: Exception) {
+                            Log.w(TAG, "http request failed", e)
+                            EventLog.push("[${profile.name}] http FAILED: ${e.message?.take(120) ?: "error"}")
+                            false
+                        }
+                    }
+                }
+
                 Actions.VAR_SET -> {
                     val name = Vars.resolve(a.value, vars).trim()
                     val valExpr = Vars.resolve(a.extra, vars)
@@ -594,10 +663,11 @@ object Dispatcher {
                     val parts = hm.split(":")
                     val hour = parts.getOrNull(0)?.toIntOrNull() ?: 7
                     val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
-                    if (cfg.useSu) {
-                        AlarmEngine.setAlarmSu(ctx, label, hour, minute, cfg.vibrate)
-                    } else {
-                        Thread { AlarmEngine.setAlarm(ctx, label, hour, minute, cfg) }.start()
+                    when {
+                        cfg.useSu -> AlarmEngine.setAlarmSu(ctx, label, hour, minute, cfg.vibrate)
+                        // no-root Tasker-style: hand off to the system clock app
+                        cfg.useSystem -> AlarmEngine.setAlarmSystem(ctx, label, hour, minute, cfg)
+                        else -> Thread { AlarmEngine.setAlarm(ctx, label, hour, minute, cfg) }.start()
                     }
                 }
 

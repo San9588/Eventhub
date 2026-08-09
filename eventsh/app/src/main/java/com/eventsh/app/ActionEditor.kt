@@ -92,6 +92,8 @@ object ActionEditor {
         Actions.NOTIFY -> Triple("notify text (%VAR% ok)", null, null)
         Actions.ROOT -> Triple("root command", null, null)
         Actions.FLASH -> Triple("text to flash (%VAR% ok)", "duration seconds (0 = short ~2s)", null)
+        Actions.SPEAK -> Triple("text to speak (%VAR% ok)", "pitch 0.5-2 (default 1)", "speech rate 0.5-2 (default 1)")
+        Actions.HTTP -> Triple("URL (%VAR% ok)", null, null)
         Actions.VAR_SET -> Triple("variable name", "value to set (math ok, %VAR% ok)", null)
         Actions.VAR_SPLIT -> Triple("variable name", "splitter (default ,)", null)
         Actions.VAR_JOIN -> Triple("variable base name (%A1, %A2...)", "joiner (default ,)", "max parts (optional)")
@@ -403,6 +405,11 @@ object ActionEditor {
             return
         }
 
+        if (type == Actions.HTTP) {
+            httpDialog(a, existing, onSave, onRemove)
+            return
+        }
+
         val (vh, eh, e2h) = actionFieldHints(type)
 
         val ll = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
@@ -531,6 +538,9 @@ object ActionEditor {
         }
         val vibrateCb = checkBox(a, "vibration on").apply { isChecked = cfg.vibrate }
         val suCb = checkBox(a, "Run with su").apply { isChecked = cfg.useSu }
+        val sysCb = checkBox(a, "Use system clock (no root - recommended)").apply {
+            isChecked = cfg.useSystem
+        }
 
         lateinit var timeTv: TextView
         timeTv = TextView(a).apply {
@@ -583,6 +593,7 @@ object ActionEditor {
             addView(snoozeEt)
             addView(vibrateCb)
             addView(soundTv)
+            addView(sysCb)
             addView(suCb)
         }
 
@@ -595,7 +606,8 @@ object ActionEditor {
                 val newCfg = cfg.copy(
                     snoozeMin = sMin,
                     vibrate = vibrateCb.isChecked,
-                    useSu = suCb.isChecked
+                    useSu = suCb.isChecked,
+                    useSystem = sysCb.isChecked
                 )
                 onSave(
                     Action(
@@ -617,5 +629,104 @@ object ActionEditor {
         if (sound.isBlank()) null else android.net.Uri.parse(sound)
     } catch (e: Exception) {
         null
+    }
+
+    /** Custom editor for the HTTP Request action (Tasker "HTTP Request" style). */
+    private fun httpDialog(
+        a: Activity,
+        existing: Action,
+        onSave: (Action) -> Unit,
+        onRemove: (() -> Unit)?
+    ) {
+        var cfg = Actions.httpCfg(existing.extra2)
+
+        val urlEt = editText(a, "URL  (https://..., %VAR% ok)").apply { setText(existing.value) }
+        var method = cfg.method.uppercase().ifBlank { "GET" }
+        val methodTv = ctxRow(a, "METHOD: $method", C.accent) {
+            val ops = arrayOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD")
+            AlertDialog.Builder(a)
+                .setTitle("HTTP METHOD")
+                .setItems(ops) { _, which ->
+                    method = ops[which]
+                    methodTv.text = "METHOD: $method"
+                }
+                .setNegativeButton("CANCEL", null)
+                .show()
+        }
+        val headersEt = editText(a, "headers  key:value  (one per line / | / ;)").apply {
+            setText(cfg.headers)
+            setMinLines(2)
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        }
+        val queryEt = editText(a, "query params  key:value  (%VAR% ok)").apply {
+            setText(cfg.query)
+            setMinLines(2)
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        }
+        val bodyEt = editText(a, "request body (POST/PUT/PATCH, %VAR% ok)").apply {
+            setText(cfg.body)
+            setMinLines(2)
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        }
+        val ctypeEt = editText(a, "content-type (optional)").apply { setText(cfg.contentType) }
+        val timeoutEt = editText(a, "timeout seconds (default 15)").apply {
+            setText(cfg.timeoutSec.toString())
+        }
+        val resultEt = editText(a, "result variable (default %http_result)").apply {
+            setText(cfg.resultVar)
+        }
+        val saveEt = editText(a, "save body to file path (optional, /sdcard/... or relative)").apply {
+            setText(cfg.saveFile)
+        }
+        val redirectCb = checkBox(a, "follow redirects").apply { isChecked = cfg.followRedirects }
+
+        val ll = LinearLayout(a).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(urlEt)
+            addView(methodTv)
+            addView(sectionLabel(a, "HEADERS"))
+            addView(headersEt)
+            addView(sectionLabel(a, "QUERY PARAMS"))
+            addView(queryEt)
+            addView(sectionLabel(a, "BODY (used by POST/PUT/PATCH)"))
+            addView(bodyEt)
+            addView(ctypeEt)
+            addView(timeoutEt)
+            addView(resultEt)
+            addView(saveEt)
+            addView(redirectCb)
+        }
+        val scroll = android.widget.ScrollView(a).apply { addView(ll) }
+
+        val d = AlertDialog.Builder(a)
+            .setTitle("ACTION  ${existing.typeLabel()}")
+            .setView(scroll)
+            .setPositiveButton("OK") { _, _ ->
+                val newCfg = Actions.HttpCfg(
+                    method = method,
+                    headers = headersEt.text.toString(),
+                    contentType = ctypeEt.text.toString().trim(),
+                    body = bodyEt.text.toString(),
+                    query = queryEt.text.toString(),
+                    timeoutSec = (timeoutEt.text.toString().toIntOrNull() ?: 15).coerceIn(1, 120),
+                    resultVar = resultEt.text.toString().trim().removePrefix("%")
+                        .ifBlank { "http_result" },
+                    saveFile = saveEt.text.toString().trim(),
+                    followRedirects = redirectCb.isChecked
+                )
+                onSave(
+                    Action(
+                        Actions.HTTP,
+                        urlEt.text.toString().trim(),
+                        method,
+                        Actions.httpEncode(newCfg),
+                        existing.cond,
+                        existing.label
+                    )
+                )
+            }
+            .setNegativeButton("CANCEL", null)
+        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
+        d.show()
     }
 }

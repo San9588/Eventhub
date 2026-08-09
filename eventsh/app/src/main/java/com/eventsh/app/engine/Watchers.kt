@@ -4,6 +4,8 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.media.session.MediaSessionManager
 import android.os.FileObserver
 import android.os.Handler
@@ -17,6 +19,8 @@ import java.io.File
  *  - file events (`file_modified` / `file_opened` / `file_closed` /
  *    `file_deleted` / `file_moved` / `file_attr`) via recursive FileObserver
  *  - `music_track` (active media session metadata polling)
+ *  - geo-fence events (`location.state`) via battery-friendly LocationManager
+ *    updates (GPS + network, 60s min interval)
  *
  * All are *need-driven*: a worker thread runs only while at least one enabled
  * rule actually uses the corresponding events, and sleeps parked on a monitor
@@ -45,6 +49,17 @@ object Watchers {
     private var fileHandlerThread: HandlerThread? = null
     private var fileHandler: Handler? = null
     private val fileObservers = HashMap<String, FileObserver>()
+
+    // geo-fence state (last fix + per-profile entry tracking). `locManager`
+    // stays null while no profile needs location, so no GPS is consumed.
+    @Volatile private var needLoc = false
+    @Volatile private var locLat = Double.NaN
+    @Volatile private var locLon = Double.NaN
+    @Volatile private var locPermission = false
+    private var locManager: LocationManager? = null
+    private var locListening = false
+    private var locListener: android.location.LocationListener? = null
+    private val locStates = HashMap<String, Boolean>()
 
     private val APP_EVENTS = setOf("app_open", "app_close", "fg_app")
     private val FILE_EVENTS = setOf(
@@ -77,6 +92,7 @@ object Watchers {
             }
         }
         if (needFiles) refreshFileObservers(c)
+        if (needLoc) startLocation(c)
     }
 
     /**
@@ -88,14 +104,18 @@ object Watchers {
         val wasStats = needRam || needDisk
         val wasMusic = needMusic
         val wasFiles = needFiles
+        val wasLoc = needLoc
         syncNeeds(ctx)
         if (needApp && !wasApp) lastFg = ""
         if (needMusic && !wasMusic) lastTrack = ""
         if (needApp != wasApp || (needRam || needDisk) != wasStats ||
-            needMusic != wasMusic || needFiles != wasFiles) {
+            needMusic != wasMusic || needFiles != wasFiles ||
+            needLoc != wasLoc) {
             synchronized(lock) { lock.notifyAll() }
         }
         if (needFiles) refreshFileObservers(ctx)
+        if (needLoc && !wasLoc) startLocation(ctx)
+        else if (!needLoc && wasLoc) stopLocation()
     }
 
     private fun syncNeeds(ctx: Context) {
@@ -119,6 +139,7 @@ object Watchers {
         needDisk = diskThreshold != null
         needMusic = profiles.any { it.enabled && it.hasEvent("music_track") }
         needFiles = profiles.any { it.enabled && it.eventActions.any { e -> e in FILE_EVENTS } }
+        needLoc = profiles.any { it.enabled && it.locationCtx != null }
     }
 
     fun stop() {
@@ -134,10 +155,120 @@ object Watchers {
         needDisk = false
         needMusic = false
         needFiles = false
+        needLoc = false
         lastFg = ""
         lastTrack = ""
         synchronized(lock) { lock.notifyAll() }
         stopFileObservers()
+        stopLocation()
+    }
+
+    /** Last known geo-fence fix, or null when no location has been received. */
+    fun currentLoc(): DoubleArray? {
+        if (locLat.isNaN() || locLon.isNaN()) return null
+        return doubleArrayOf(locLat, locLon)
+    }
+
+    /** True when the app holds a location permission (best fix available). */
+    fun hasLocationPermission(ctx: Context): Boolean {
+        val fine = ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        val coarse = ctx.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        return fine || coarse
+    }
+
+    // ------------------------------------------------------------- geo-fence
+    /**
+     * Registers a passive GPS + network location listener. Battery-friendly:
+     * the OS batches fixes (>= 60s, >= minDistance) and we only dispatch on an
+     * entry transition, so no polling thread burns CPU while inside a fence.
+     */
+    private fun startLocation(ctx: Context) {
+        try {
+            locPermission = hasLocationPermission(ctx)
+            if (!locPermission) {
+                EventLog.push("[loc] location permission missing - geo-fence inactive")
+                return
+            }
+            val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            locManager = lm
+            val listener = object : android.location.LocationListener {
+                override fun onLocationChanged(loc: android.location.Location) {
+                    locLat = loc.latitude
+                    locLon = loc.longitude
+                    handleFences(ctx, loc.latitude, loc.longitude)
+                }
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+            }
+            locListener = listener
+            if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 60_000L, 50f, listener)
+            }
+            if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 60_000L, 50f, listener)
+            }
+            locListening = true
+            // seed with the last fix so an already-inside profile fires promptly
+            lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?.let { locLat = it.latitude; locLon = it.longitude; handleFences(ctx, it.latitude, it.longitude) }
+                ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                    ?.let { locLat = it.latitude; locLon = it.longitude; handleFences(ctx, it.latitude, it.longitude) }
+            EventLog.push("[loc] geo-fence monitoring on")
+        } catch (e: SecurityException) {
+            locPermission = false
+            EventLog.push("[loc] location permission missing - geo-fence inactive")
+        } catch (e: Exception) {
+            EventLog.push("[loc] geo-fence failed: ${e.message?.take(80) ?: "error"}")
+        }
+    }
+
+    private fun stopLocation() {
+        try {
+            val l = locListener
+            if (locListening && l != null) {
+                locManager?.removeUpdates(l)
+            }
+        } catch (e: Exception) {
+        }
+        locListener = null
+        locManager = null
+        locListening = false
+        locLat = Double.NaN
+        locLon = Double.NaN
+        locStates.clear()
+    }
+
+    /** Dispatches `location.state` for every profile that just entered its fence. */
+    private fun handleFences(ctx: Context, lat: Double, lon: Double) {
+        try {
+            for (p in Store.cachedProfiles(ctx)) {
+                val lc = p.locationCtx ?: continue
+                if (!p.enabled) continue
+                val inside = ContextGate.haversineM(lat, lon, lc.lat, lc.lon) <= lc.radiusMeters
+                val was = locStates[p.id] ?: false
+                locStates[p.id] = inside
+                if (inside && !was) {
+                    EventHub.dispatch(
+                        "location.state",
+                        mapOf(
+                            "summary" to "entered ${lc.summary()}",
+                            "lat" to String.format(java.util.Locale.US, "%.6f", lat),
+                            "lon" to String.format(java.util.Locale.US, "%.6f", lon),
+                            "radius" to lc.radiusMeters.toInt().toString(),
+                            "state" to "in"
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("EVENTSH", "fence handling failed", e)
+        }
     }
 
     // ------------------------------------------------------------- file events
