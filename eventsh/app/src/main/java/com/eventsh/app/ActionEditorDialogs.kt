@@ -91,7 +91,7 @@ object ActionEditorDialogs {
             }
             .setNegativeButton("CANCEL", null)
         if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-        com.eventsh.app.ui.Maniflow.showDialog(d)
+        com.eventsh.app.ui.Maniflow.showDialog(d.create())
     }
 
     /** Custom editor for the HTTP Request action. */
@@ -192,6 +192,6 @@ object ActionEditorDialogs {
             }
             .setNegativeButton("CANCEL", null)
         if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-        com.eventsh.app.ui.Maniflow.showDialog(d)
+        com.eventsh.app.ui.Maniflow.showDialog(d.create())
     }
 }

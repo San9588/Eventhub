@@ -154,7 +154,7 @@ fun MainActivity.eventCtxDialog(existing: EventCtx?, onSave: (EventCtx) -> Unit,
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    com.eventsh.app.ui.Maniflow.showDialog(d)
+    com.eventsh.app.ui.Maniflow.showDialog(d.create())
 }
 
 fun MainActivity.timeCtxDialog(existing: TimeCtx?, onSave: (TimeCtx) -> Unit, onRemove: (() -> Unit)?) {
@@ -189,7 +189,7 @@ fun MainActivity.timeCtxDialog(existing: TimeCtx?, onSave: (TimeCtx) -> Unit, on
                 from = String.format(Locale.US, "%02d:%02d", hh, mm)
                 if (singleCb.isChecked) to = from
                 syncViews()
-            }, h, m, true).showThemed()
+            }, h, m, true).show()
         }
     }
     toTv = TextView(this).apply {
@@ -244,7 +244,7 @@ fun MainActivity.timeCtxDialog(existing: TimeCtx?, onSave: (TimeCtx) -> Unit, on
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    com.eventsh.app.ui.Maniflow.showDialog(d)
+    com.eventsh.app.ui.Maniflow.showDialog(d.create())
 }
 
 fun MainActivity.hm(hhmm: String): Pair<Int, Int> {
@@ -297,7 +297,7 @@ fun MainActivity.dayCtxDialog(existing: DayCtx?, onSave: (DayCtx) -> Unit, onRem
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    com.eventsh.app.ui.Maniflow.showDialog(d)
+    com.eventsh.app.ui.Maniflow.showDialog(d.create())
 }
 
 fun MainActivity.varCtxDialog(existing: VarCtx?, onSave: (VarCtx) -> Unit, onRemove: (() -> Unit)?) {
@@ -334,7 +334,7 @@ fun MainActivity.varCtxDialog(existing: VarCtx?, onSave: (VarCtx) -> Unit, onRem
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    com.eventsh.app.ui.Maniflow.showDialog(d)
+    com.eventsh.app.ui.Maniflow.showDialog(d.create())
 }
 
 fun MainActivity.appCtxDialog(existing: AppCtx?, onSave: (AppCtx) -> Unit, onRemove: (() -> Unit)?) {
@@ -373,7 +373,7 @@ fun MainActivity.appCtxDialog(existing: AppCtx?, onSave: (AppCtx) -> Unit, onRem
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    com.eventsh.app.ui.Maniflow.showDialog(d)
+    com.eventsh.app.ui.Maniflow.showDialog(d.create())
 }
 
 fun MainActivity.locationCtxDialog(existing: LocationCtx?, onSave: (LocationCtx) -> Unit, onRemove: (() -> Unit)?) {
@@ -433,7 +433,7 @@ fun MainActivity.locationCtxDialog(existing: LocationCtx?, onSave: (LocationCtx)
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    com.eventsh.app.ui.Maniflow.showDialog(d)
+    com.eventsh.app.ui.Maniflow.showDialog(d.create())
 }
 
 /** Last cached fix from any provider, without requesting a fresh one. */

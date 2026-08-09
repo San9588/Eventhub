@@ -117,7 +117,7 @@ fun MainActivity.varDialog(existing: MainActivity.VarEntry?) {
             refreshScreen()
         }
     }
-    com.eventsh.app.ui.Maniflow.showDialog(d)
+    com.eventsh.app.ui.Maniflow.showDialog(d.create())
 }
 
 fun MainActivity.showPermissionsDialog(missing: List<Permissions.Need>) {
