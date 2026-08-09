@@ -520,7 +520,7 @@ class MainActivity : Activity() {
         if (::homeHeaderStatus.isInitialized) {
             homeHeaderStatus.text = if (running) "Running" else "Service stopped"
             homeHeadline.text = if (profiles.isEmpty()) "No profiles yet - tap + to begin"
-            else "${profiles.size} flows tumhare din ko dekh rahe hain"
+            else "${profiles.size} flows are managing your day"
             Maniflow.restylePill(homePillService, "SERVICE", running)
             Maniflow.restylePill(homePillRoot, "ROOT", if (!rootChecked) null else rootOk)
             statFlows.text = profiles.count { it.enabled }.toString()

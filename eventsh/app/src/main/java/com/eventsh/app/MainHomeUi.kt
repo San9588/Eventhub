@@ -95,7 +95,7 @@ private fun MainActivity.buildHomeHero(): View {
         topMargin = dp(6f)
     })
 
-    col.addView(Maniflow.sectionLabel(this, "Tumhare profiles", topMargin = 22))
+    col.addView(Maniflow.sectionLabel(this, "Your Profiles", topMargin = 22))
     homeEmpty = Maniflow.text(this, "No profiles yet - tap + to begin", 14f, t.textMuted).apply {
         setPadding(dp(2f), dp(6f), dp(2f), dp(10f))
     }
@@ -115,7 +115,7 @@ private fun MainActivity.buildChatCard(): View {
         setColorFilter(t.accentPrimary)
     }, LinearLayout.LayoutParams(dp(22f), dp(22f)))
     inner.addView(
-        Maniflow.text(ctx, "Maniflow se bolo, wo bana dega...", 14f, t.textMuted).apply {
+        Maniflow.text(ctx, "Ask Maniflow, and it will build it...", 14f, t.textMuted).apply {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         },
@@ -138,7 +138,7 @@ private fun MainActivity.buildChatCard(): View {
 
 private fun MainActivity.flowHeadline(): String =
     if (profiles.isEmpty()) "No profiles yet - tap + to begin"
-    else "${profiles.size} flows tumhare din ko dekh rahe hain"
+    else "${profiles.size} flows are managing your day"
 
 private fun flowTint(pos: Int): Int {
     val tints = listOf(

@@ -297,16 +297,16 @@ private fun MainActivity.aiSettingsCard(): View {
 
     col.addView(Maniflow.listRow(
         this, R.drawable.ic_ai, t.accentPrimary, "Theme Studio",
-        subtitle = "AI se apna theme banao",
+        subtitle = "Create your own theme with AI",
         onClick = { startActivity(Intent(act, ThemeStudioActivity::class.java)) },
         showDivider = false
     ))
 
     col.addView(
-        Maniflow.button(this, "Default theme pe wapas jao", false) {
+        Maniflow.button(this, "Reset to default theme", false) {
             ThemeController.resetToDefault(act)
             rebuildUi()
-            Toast.makeText(act, "Default theme wapas aa gaya", Toast.LENGTH_SHORT).show()
+            Toast.makeText(act, "Default theme restored", Toast.LENGTH_SHORT).show()
         },
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12f)
