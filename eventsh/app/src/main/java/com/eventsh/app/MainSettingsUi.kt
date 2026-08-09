@@ -122,6 +122,15 @@ fun MainActivity.buildSettings() {
         dataCard.addView(actionRowContent("Import", "restore profiles + tasks + variables from backup", { importRules() }).first, matchWrap())
         root.addView(dataCard, matchWrap())
 
+        // ---- HELP
+        root.addView(sectionLabel("HELP"))
+        val helpCard = cardContainer()
+        helpCard.addView(
+            actionRowContent("Help", "every action documented inside the app", { Help.show(this) }).first,
+            matchWrap()
+        )
+        root.addView(helpCard, matchWrap())
+
         // ---- ABOUT
         root.addView(sectionLabel("ABOUT"))
         val aboutCard = cardContainer()
