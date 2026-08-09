@@ -1,5 +1,6 @@
 package com.eventsh.app
 
+import android.content.Intent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -121,7 +122,7 @@ private fun MainActivity.buildChatCard(): View {
         setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
         background = Maniflow.rounded(ctx, t.accentPrimary, 999)
         contentDescription = "Send"
-        setOnClickListener { aiPlaceholder() }
+        setOnClickListener { startActivity(Intent(this@MainActivity, ThemeStudioActivity::class.java)) }
     }, LinearLayout.LayoutParams(dp(38f), dp(38f)).apply {
         marginStart = dp(8f)
     })

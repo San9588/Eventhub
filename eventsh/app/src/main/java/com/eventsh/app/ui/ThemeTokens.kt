@@ -26,6 +26,7 @@ data class ThemeTokens(
     val radiusBadge: Int = 9,
     val radiusToggle: Int = 10,
     val shadowElevation: Int = 4,
+    val fontFamily: String = "Default",
     val spacingUnit: Int = 16,
     val statOrange: Int = 0xFFF97316.toInt(),
     val statPink: Int = 0xFFEC4899.toInt(),

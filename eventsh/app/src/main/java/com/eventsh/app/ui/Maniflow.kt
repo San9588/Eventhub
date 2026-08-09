@@ -50,7 +50,12 @@ object Maniflow {
         text = label
         textSize = sizeSp
         setTextColor(color)
-        typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        val tf = when (Theme.current.fontFamily) {
+            "Serif" -> if (bold) Typeface.SERIF_BOLD else Typeface.SERIF
+            "Monospace" -> if (bold) Typeface.MONOSPACE_BOLD else Typeface.MONOSPACE
+            else -> if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        }
+        typeface = tf
     }
 
     /**

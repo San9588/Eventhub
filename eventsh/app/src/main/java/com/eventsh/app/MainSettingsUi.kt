@@ -2,18 +2,27 @@ package com.eventsh.app
 
 import android.content.Intent
 import android.os.Build
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import com.eventsh.app.engine.RootBridge
 import com.eventsh.app.engine.Store
 import com.eventsh.app.service.EventService
+import com.eventsh.app.theme.ThemeController
+import com.eventsh.app.theme.ThemeHistoryEntry
+import com.eventsh.app.theme.ThemeStore
 import com.eventsh.app.ui.Maniflow
 import com.eventsh.app.ui.ManiflowToggle
 import com.eventsh.app.ui.Theme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * MainActivity SETTINGS TAB - all UI code for the "Settings" tab, rebuilt on
@@ -45,6 +54,13 @@ fun MainActivity.buildSettings() {
 
     body.addView(Maniflow.sectionLabel(this, "Data", topMargin = 12))
     body.addView(dataCard(), matchWrap())
+
+    body.addView(Maniflow.sectionLabel(this, "AI Settings", topMargin = 12))
+    body.addView(aiSettingsCard(), matchWrap())
+
+    body.addView(Maniflow.sectionLabel(this, "Recent Themes", topMargin = 12))
+    recentThemesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    body.addView(Maniflow.card(this, recentThemesBox), matchWrap())
 
     body.addView(Maniflow.sectionLabel(this, "Help", topMargin = 12))
     body.addView(helpCard(), matchWrap())
@@ -216,4 +232,132 @@ private fun MainActivity.aboutCard(): View {
     aboutText = Maniflow.text(this, "", 13f, t.textMuted)
     col.addView(aboutText)
     return Maniflow.card(this, col)
+}
+
+// ============================================================================
+//  AI SETTINGS + RECENT THEMES
+// ============================================================================
+
+private fun MainActivity.aiSettingsCard(): View {
+    val t = Theme.current
+    val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+    aiKeyField = EditText(this).apply {
+        hint = "Gemini API key (AIza...)"
+        inputType = android.text.InputType.TYPE_CLASS_TEXT or
+            android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        setHintTextColor(t.textMuted)
+        setTextColor(t.textPrimary)
+        textSize = 15f
+        background = Maniflow.rounded(this@MainActivity, t.surfaceBg, 10, borderColor = t.borderColor, borderDp = 1f)
+        setPadding(dp(10f), dp(9f), dp(10f), dp(9f))
+    }
+    col.addView(aiKeyField)
+
+    aiKeyStatusTv = Maniflow.text(this, "", 12f, t.textMuted)
+    col.addView(aiKeyStatusTv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        topMargin = dp(6f)
+    })
+
+    val saveRow = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.END
+    }
+    saveRow.addView(Maniflow.button(this, "SAVE", true) { saveGeminiKey() })
+    col.addView(saveRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        topMargin = dp(8f)
+    })
+
+    col.addView(Maniflow.divider(this), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        topMargin = dp(12f)
+    })
+
+    col.addView(Maniflow.listRow(
+        this, R.drawable.ic_ai, t.accentPrimary, "Theme Studio",
+        subtitle = "AI se apni theme banao",
+        onClick = { startActivity(Intent(this@MainActivity, ThemeStudioActivity::class.java)) },
+        showDivider = false
+    ))
+
+    col.addView(
+        Maniflow.button(this, "Default theme pe wapas jao", false) {
+            ThemeController.resetToDefault(this@MainActivity)
+            rebuildUi()
+            Toast.makeText(this@MainActivity, "Default theme wapas aa gaya", Toast.LENGTH_SHORT).show()
+        },
+        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12f)
+        }
+    )
+    return Maniflow.card(this, col)
+}
+
+private fun MainActivity.saveGeminiKey() {
+    val key = aiKeyField.text.toString().trim()
+    if (key.isBlank()) {
+        aiKeyStatusTv.text = if (ThemeStore.hasApiKey(this)) "Key pehle se saved hai" else "Key empty nahi ho sakti"
+        return
+    }
+    ThemeStore.saveApiKey(this, key)
+    aiKeyField.text.clear()
+    Toast.makeText(this, "Gemini API key saved", Toast.LENGTH_SHORT).show()
+    refreshAiSettings()
+}
+
+/** Re-populates the AI status line + the recent-themes list (called on refresh). */
+internal fun MainActivity.refreshAiSettings() {
+    if (!::aiKeyStatusTv.isInitialized || !::recentThemesBox.isInitialized) return
+    val t = Theme.current
+    aiKeyStatusTv.text = if (ThemeStore.hasApiKey(this)) "API key saved" else "API key add nahi hui"
+    recentThemesBox.removeAllViews()
+    val entries = ThemeStore.history(this)
+    if (entries.isEmpty()) {
+        recentThemesBox.addView(
+            Maniflow.text(this, "Abhi koi recent theme nahi hai", 13f, t.textMuted).apply {
+                setPadding(dp(2f), dp(4f), dp(2f), dp(4f))
+            }
+        )
+    } else {
+        entries.forEachIndexed { idx, entry ->
+            recentThemesBox.addView(recentThemeRow(entry, idx))
+        }
+    }
+}
+
+private fun MainActivity.recentThemeRow(entry: ThemeHistoryEntry, idx: Int): View {
+    val t = Theme.current
+    val row = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(2f), dp(10f), dp(2f), dp(10f))
+        isClickable = true
+        isFocusable = true
+        setOnClickListener {
+            ThemeController.apply(this@MainActivity, entry.tokens)
+            rebuildUi()
+            Toast.makeText(this@MainActivity, "Theme wapas lag gaya", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val swatch = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+    listOf(entry.tokens.headerBg, entry.tokens.accentPrimary, entry.tokens.cardBg).forEach { c ->
+        swatch.addView(
+            View(this).apply { background = Maniflow.rounded(this@MainActivity, c, 6) },
+            LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { marginEnd = dp(6f) }
+        )
+    }
+    row.addView(swatch)
+
+    val time = SimpleDateFormat("dd MMM HH:mm", Locale.US).format(Date(entry.at))
+    row.addView(
+        Maniflow.text(this, "Theme ${idx + 1}  •  $time", 14f, t.textPrimary, bold = true),
+        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = dp(10f)
+        }
+    )
+
+    val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    wrap.addView(row)
+    wrap.addView(Maniflow.divider(this))
+    return wrap
 }

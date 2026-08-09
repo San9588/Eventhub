@@ -3,8 +3,10 @@ package com.eventsh.app
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.AlertDialog
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
@@ -33,6 +35,7 @@ import com.eventsh.app.engine.SysStats
 import com.eventsh.app.engine.Task
 import com.eventsh.app.engine.UserVars
 import com.eventsh.app.service.EventService
+import com.eventsh.app.theme.ThemeController
 import com.eventsh.app.ui.Maniflow
 import com.eventsh.app.ui.Theme
 import java.io.File
@@ -130,6 +133,21 @@ class MainActivity : Activity() {
     internal lateinit var exactStatusTv: TextView
     internal lateinit var battOptStatusTv: TextView
     internal lateinit var locStatusTv: TextView
+    internal lateinit var aiKeyField: EditText
+    internal lateinit var aiKeyStatusTv: TextView
+    internal lateinit var recentThemesBox: LinearLayout
+
+    private var renderedGeneration = -1
+    private var pendingOpenTab = -1
+    private var themeReceiverRegistered = false
+    private val themeResetReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            if (i?.action == ThemeController.ACTION_THEME_RESET) {
+                ThemeController.restoreFromDisk(this@MainActivity)
+                rebuildUi()
+            }
+        }
+    }
 
     private lateinit var flowAdapter: FlowListAdapter
     private lateinit var taskAdapter: TaskListAdapter
@@ -145,7 +163,12 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 10)
         }
         UserVars.init(this)
+        pendingOpenTab = intent?.getIntExtra("open_tab", -1) ?: -1
+        ThemeController.restoreFromDisk(this)
         buildUi()
+        renderedGeneration = ThemeController.generation
+        registerThemeResetReceiver()
+        if (pendingOpenTab >= 0) selectTab(pendingOpenTab)
         if (Store.autostart(this) && !isServiceRunning()) startServiceCompat()
         RootBridge.checkAsync()
         refreshScreen()
@@ -195,8 +218,12 @@ class MainActivity : Activity() {
         super.onResume()
         resumed = true
         refreshPermissions()
-        refreshScreen()
-        updateStats()
+        if (renderedGeneration != ThemeController.generation) {
+            rebuildUi()
+        } else {
+            refreshScreen()
+            updateStats()
+        }
     }
 
     override fun onPause() {
@@ -204,8 +231,18 @@ class MainActivity : Activity() {
         super.onPause()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val tab = intent.getIntExtra("open_tab", -1)
+        if (tab in 0..TAB_NAMES.lastIndex) selectTab(tab)
+    }
+
     override fun onDestroy() {
         EventLog.listener = null
+        if (themeReceiverRegistered) {
+            try { unregisterReceiver(themeResetReceiver) } catch (e: Exception) {}
+            themeReceiverRegistered = false
+        }
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
@@ -309,6 +346,26 @@ class MainActivity : Activity() {
         fabAdd.visibility = if (i == TAB_SETTINGS || i == TAB_LOG) View.GONE else View.VISIBLE
         fabAi.visibility = fabAdd.visibility
         refreshEmptyViews()
+    }
+
+    private fun registerThemeResetReceiver() {
+        val filter = IntentFilter(ThemeController.ACTION_THEME_RESET)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(themeResetReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(themeResetReceiver, filter)
+        }
+        themeReceiverRegistered = true
+    }
+
+    /** Rebuilds the whole view hierarchy so every screen picks up the new theme. */
+    internal fun rebuildUi() {
+        val tab = currentTab
+        buildUi()
+        if (tab != TAB_HOME) selectTab(tab)
+        renderedGeneration = ThemeController.generation
+        refreshScreen()
     }
 
     private fun tabScaffold(headerTitle: String): Pair<View, FrameLayout> {
@@ -508,6 +565,7 @@ class MainActivity : Activity() {
         if (::aboutText.isInitialized) {
             aboutText.text = "Maniflow v0.1.0\n$ramText   $cpuText   battery $battText\nprofiles: ${profiles.count { it.enabled }} armed / ${profiles.size}"
         }
+        refreshAiSettings()
     }
 
     private fun updateStats() {

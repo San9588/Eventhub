@@ -74,6 +74,23 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.Maniflow" />
 
+        <activity
+            android:name=".ThemeStudioActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.Maniflow" />
+
+        <service
+            android:name=".ThemeResetTileService"
+            android:icon="@drawable/ic_theme_reset"
+            android:label="Reset Maniflow Theme"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".service.EventService"
             android:exported="false"
