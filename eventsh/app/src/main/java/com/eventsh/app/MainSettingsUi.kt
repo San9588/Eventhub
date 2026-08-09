@@ -60,6 +60,7 @@ fun MainActivity.buildSettings() {
 
     body.addView(Maniflow.sectionLabel(this, "Recent Themes", topMargin = 12))
     recentThemesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    aiThemesFingerprint = -1
     body.addView(Maniflow.card(this, recentThemesBox), matchWrap())
 
     body.addView(Maniflow.sectionLabel(this, "Help", topMargin = 12))
@@ -275,16 +276,16 @@ private fun MainActivity.aiSettingsCard(): View {
 
     col.addView(Maniflow.listRow(
         this, R.drawable.ic_ai, t.accentPrimary, "Theme Studio",
-        subtitle = "AI se apni theme banao",
+        subtitle = "Create your own theme with AI",
         onClick = { startActivity(Intent(act, ThemeStudioActivity::class.java)) },
         showDivider = false
     ))
 
     col.addView(
-        Maniflow.button(this, "Default theme pe wapas jao", false) {
+        Maniflow.button(this, "Reset to default theme", false) {
             ThemeController.resetToDefault(act)
             rebuildUi()
-            Toast.makeText(act, "Default theme wapas aa gaya", Toast.LENGTH_SHORT).show()
+            Toast.makeText(act, "Default theme restored", Toast.LENGTH_SHORT).show()
         },
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12f)
@@ -296,7 +297,7 @@ private fun MainActivity.aiSettingsCard(): View {
 private fun MainActivity.saveGeminiKey() {
     val key = aiKeyField.text.toString().trim()
     if (key.isBlank()) {
-        aiKeyStatusTv.text = if (ThemeStore.hasApiKey(this)) "Key pehle se saved hai" else "Key empty nahi ho sakti"
+        aiKeyStatusTv.text = if (ThemeStore.hasApiKey(this)) "Key already saved" else "Key cannot be empty"
         return
     }
     ThemeStore.saveApiKey(this, key)
@@ -309,12 +310,14 @@ private fun MainActivity.saveGeminiKey() {
 internal fun MainActivity.refreshAiSettings() {
     if (!aiSettingsUiReady()) return
     val t = Theme.current
-    aiKeyStatusTv.text = if (ThemeStore.hasApiKey(this)) "API key saved" else "API key add nahi hui"
-    recentThemesBox.removeAllViews()
+    aiKeyStatusTv.text = if (ThemeStore.hasApiKey(this)) "API key saved" else "No API key added"
     val entries = ThemeStore.history(this)
+    if (entries.hashCode() == aiThemesFingerprint) return
+    aiThemesFingerprint = entries.hashCode()
+    recentThemesBox.removeAllViews()
     if (entries.isEmpty()) {
         recentThemesBox.addView(
-            Maniflow.text(this, "Abhi koi recent theme nahi hai", 13f, t.textMuted).apply {
+            Maniflow.text(this, "No recent themes yet", 13f, t.textMuted).apply {
                 setPadding(dp(2f), dp(4f), dp(2f), dp(4f))
             }
         )
@@ -337,7 +340,7 @@ private fun MainActivity.recentThemeRow(entry: ThemeHistoryEntry, idx: Int): Vie
         setOnClickListener {
             ThemeController.apply(act, entry.tokens)
             rebuildUi()
-            Toast.makeText(act, "Theme wapas lag gaya", Toast.LENGTH_SHORT).show()
+            Toast.makeText(act, "Theme applied", Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -232,7 +232,6 @@ fun MainActivity.profileDialog(existing: Profile?) {
 
     val d = AlertDialog.Builder(this)
         .setTitle(if (existing == null) "NEW PROFILE" else "EDIT PROFILE")
-        .setMessage("trigger contexts + linked task")
         .setView(scroll)
         .setPositiveButton("SAVE") { _, _ ->
             val eventCtx = contexts.filterIsInstance<EventCtx>().firstOrNull()

@@ -60,17 +60,31 @@ object ThemeStore {
 
     // Best-effort prefs handle: a keystore failure must never crash the app,
     // so every accessor treats a null handle as "empty / no-op".
-    private fun prefs(ctx: Context): SharedPreferences? = try {
-        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
-        EncryptedSharedPreferences.create(
-            PREFS,
-            masterKeyAlias,
-            ctx,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    } catch (e: Exception) {
-        null
+    // Building the EncryptedSharedPreferences re-reads the Tink keysets from
+    // the Android Keystore every call (slow, main-thread jank), so the handle
+    // is cached once for the process lifetime.
+    @Volatile
+    private var cachedPrefs: SharedPreferences? = null
+
+    private fun prefs(ctx: Context): SharedPreferences? {
+        cachedPrefs?.let { return it }
+        synchronized(this) {
+            cachedPrefs?.let { return it }
+            cachedPrefs = try {
+                val app = ctx.applicationContext
+                val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+                EncryptedSharedPreferences.create(
+                    PREFS,
+                    masterKeyAlias,
+                    app,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (e: Exception) {
+                null
+            }
+            return cachedPrefs
+        }
     }
 
     // ------------------------------------------------------------ api key

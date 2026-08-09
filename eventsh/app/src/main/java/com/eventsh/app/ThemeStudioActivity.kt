@@ -25,7 +25,7 @@ import com.eventsh.app.ui.Maniflow
 import com.eventsh.app.ui.Theme
 
 /**
- * THEME STUDIO - the "Apni theme banao" screen. User types a natural-language
+ * THEME STUDIO - the "build your own theme" screen. User types a natural-language
  * theme request, we ask Gemini for a token set, run it through the validator
  * and (only then) apply + persist it. Also hosts the UNDO snackbar.
  */
@@ -73,7 +73,7 @@ class ThemeStudioActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(t.surfaceBg)
         }
-        col.addView(Maniflow.header(this, "Theme Studio", status = "AI se apni theme banao", onBack = { finish() }))
+        col.addView(Maniflow.header(this, "Theme Studio", status = "Create your theme with AI", onBack = { finish() }))
         val scroll = ScrollView(this).apply { setBackgroundColor(t.surfaceBg) }
         body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -93,19 +93,19 @@ class ThemeStudioActivity : Activity() {
         if (!ThemeStore.hasApiKey(this)) {
             val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             inner.addView(
-                Maniflow.text(this, "Pehle Settings mein Gemini API key add karo", 14f, t.textMuted).apply {
+                Maniflow.text(this, "Add your Gemini API key in Settings first", 14f, t.textMuted).apply {
                     setPadding(dp(2f), dp(2f), dp(2f), dp(10f))
                 }
             )
-            inner.addView(Maniflow.button(this, "SETTINGS KHOLO", true) { openSettings() })
+            inner.addView(Maniflow.button(this, "OPEN SETTINGS", true) { openSettings() })
             body.addView(Maniflow.card(this, inner), matchWrap())
             return
         }
 
         val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        inner.addView(Maniflow.sectionLabel(this, "Apni theme bolo"))
+        inner.addView(Maniflow.sectionLabel(this, "Describe your theme"))
         promptInput = EditText(this).apply {
-            hint = "jaise: sunset warm orange theme kardo"
+            hint = "e.g. a warm sunset orange theme"
             setHintTextColor(t.textMuted)
             setTextColor(t.textPrimary)
             textSize = 16f
@@ -164,12 +164,12 @@ class ThemeStudioActivity : Activity() {
         if (loading) return
         val prompt = promptInput.text.toString().trim()
         if (prompt.isBlank()) {
-            toast("Pehle apni theme describe karo")
+            toast("Describe your theme first")
             return
         }
         val apiKey = ThemeStore.apiKey(this)
         if (apiKey.isNullOrBlank()) {
-            toast("Pehle Settings mein Gemini API key add karo")
+            toast("Add your Gemini API key in Settings first")
             buildBody()
             return
         }
@@ -189,14 +189,14 @@ class ThemeStudioActivity : Activity() {
                     showAppliedSnackbar {
                         ThemeController.undo(act)
                         buildUi()
-                        toast("Purana theme wapas aa gaya")
+                        toast("Previous theme restored")
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
                     setLoading(false)
-                    toast("Theme generate nahi ho paya, dobara try karo")
+                    toast("Could not generate the theme, please try again")
                 }
             }
         }.start()
@@ -212,7 +212,7 @@ class ThemeStudioActivity : Activity() {
             setPadding(dp(16f), dp(12f), dp(10f), dp(12f))
         }
         bar.addView(
-            Maniflow.text(this, "Theme apply ho gaya", 14f, 0xFFFFFFFF.toInt()),
+            Maniflow.text(this, "Theme applied", 14f, 0xFFFFFFFF.toInt()),
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
         bar.addView(Maniflow.text(this, "UNDO", 14f, 0xFF4ADE80.toInt(), bold = true).apply {

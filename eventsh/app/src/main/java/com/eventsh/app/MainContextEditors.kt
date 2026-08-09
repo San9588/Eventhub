@@ -113,8 +113,14 @@ fun MainActivity.eventCtxDialog(existing: EventCtx?, onSave: (EventCtx) -> Unit,
         prioEt.setText(existing.priority.toString())
         stopCb.isChecked = existing.stopEvent
     }
+    val hint = TextView(this).apply {
+        textSize = 12f
+        setTextColor(t.textMuted)
+        text = "tap event name to choose"
+    }
     val ll = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
+        addView(hint)
         addView(actionTv)
         addView(paramsBox)
         addView(filterEt)
@@ -123,7 +129,6 @@ fun MainActivity.eventCtxDialog(existing: EventCtx?, onSave: (EventCtx) -> Unit,
     }
     val d = AlertDialog.Builder(this)
         .setTitle("EVENT CONTEXT")
-        .setMessage("tap event name to choose")
         .setView(ll)
         .setPositiveButton("OK") { _, _ ->
             if (action.isBlank()) {
@@ -207,8 +212,14 @@ fun MainActivity.timeCtxDialog(existing: TimeCtx?, onSave: (TimeCtx) -> Unit, on
         syncViews()
     }
     syncViews()
+    val hint = TextView(this).apply {
+        textSize = 12f
+        setTextColor(t.textMuted)
+        text = "from=to => instant point\nevery N min => repeat within range"
+    }
     val ll = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
+        addView(hint)
         addView(singleCb)
         addView(fromTv)
         addView(toTv)
@@ -216,7 +227,6 @@ fun MainActivity.timeCtxDialog(existing: TimeCtx?, onSave: (TimeCtx) -> Unit, on
     }
     val d = AlertDialog.Builder(this)
         .setTitle("TIME CONTEXT")
-        .setMessage("from=to => instant point\nevery N min => repeat within range")
         .setView(ll)
         .setPositiveButton("OK") { _, _ ->
             val rep = (repeatEt.text.toString().toIntOrNull() ?: 0).coerceAtLeast(0)
@@ -255,8 +265,14 @@ fun MainActivity.dayCtxDialog(existing: DayCtx?, onSave: (DayCtx) -> Unit, onRem
     dowCbs.forEach { dowGrid.addView(it) }
     val monGrid = GridLayout(this).apply { columnCount = 3 }
     monCbs.forEach { monGrid.addView(it) }
+    val hint = TextView(this).apply {
+        textSize = 12f
+        setTextColor(Theme.current.textMuted)
+        text = "day-of-week, months and days-of-month all apply (AND); leave a group empty for any"
+    }
     val ll = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
+        addView(hint)
         addView(sectionLabel("DAYS OF WEEK"))
         addView(dowGrid)
         addView(sectionLabel("MONTHS"))
@@ -265,7 +281,6 @@ fun MainActivity.dayCtxDialog(existing: DayCtx?, onSave: (DayCtx) -> Unit, onRem
     }
     val d = AlertDialog.Builder(this)
         .setTitle("DAY CONTEXT")
-        .setMessage("day-of-week, months and days-of-month all apply (AND); leave a group empty for any")
         .setView(ll)
         .setPositiveButton("OK") { _, _ ->
             onSave(
@@ -292,15 +307,20 @@ fun MainActivity.varCtxDialog(existing: VarCtx?, onSave: (VarCtx) -> Unit, onRem
         valEt.setText(existing.value)
         invCb.isChecked = existing.invert
     }
+    val hint = TextView(this).apply {
+        textSize = 12f
+        setTextColor(Theme.current.textMuted)
+        text = "rule fires when variable matches the value pattern"
+    }
     val ll = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
+        addView(hint)
         addView(nameEt)
         addView(valEt)
         addView(invCb)
     }
     val d = AlertDialog.Builder(this)
         .setTitle("VARIABLE CONTEXT")
-        .setMessage("rule fires when variable matches the value pattern")
         .setView(ll)
         .setPositiveButton("OK") { _, _ ->
             val n = nameEt.text.toString().trim()
@@ -381,8 +401,14 @@ fun MainActivity.locationCtxDialog(existing: LocationCtx?, onSave: (LocationCtx)
             lonEt.setText(String.format(Locale.US, "%.6f", loc[1]))
         }
     }
+    val hint = TextView(this).apply {
+        textSize = 12f
+        setTextColor(t.textMuted)
+        text = "profile fires when the device enters this circle. Battery-friendly: the OS batches fixes and nothing fires while you stay inside."
+    }
     val ll = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
+        addView(hint)
         addView(curBtn)
         addView(sectionLabel("LATITUDE / LONGITUDE"))
         addView(latEt)
@@ -392,7 +418,6 @@ fun MainActivity.locationCtxDialog(existing: LocationCtx?, onSave: (LocationCtx)
     }
     val d = AlertDialog.Builder(this)
         .setTitle("LOCATION CONTEXT (geo-fence)")
-        .setMessage("profile fires when the device enters this circle. Battery-friendly: the OS batches fixes and nothing fires while you stay inside.")
         .setView(ll)
         .setPositiveButton("OK") { _, _ ->
             val lat = latEt.text.toString().trim().toDoubleOrNull()

@@ -30,8 +30,10 @@ fun MainActivity.timerDialog() {
     val shellEt = editText("built-in shell command (sh -c ...)")
     val rootEt = editText("root command")
     val notifyCb = checkBox("show notification")
+    val hint = Maniflow.text(this, "07:30 = daily\n+600 = one-shot in 600s\n1730000000 = one-shot epoch ms", 12f, t.textMuted)
     val ll = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
+        addView(hint)
         addView(whenEt)
         addView(labelEt)
         addView(taskEt)
@@ -41,7 +43,6 @@ fun MainActivity.timerDialog() {
     }
     AlertDialog.Builder(this)
         .setTitle("ADD TIMER")
-        .setMessage("07:30 = daily\n+600 = one-shot in 600s\n1730000000 = one-shot epoch ms")
         .setView(ll)
         .setPositiveButton("ARM") { _, _ ->
             val w = whenEt.text.toString().trim()
@@ -89,14 +90,15 @@ fun MainActivity.varDialog(existing: MainActivity.VarEntry?) {
         nameEt.setText(existing.name)
         valEt.setText(existing.value)
     }
+    val hint = Maniflow.text(this, "lowercase name = RAM only\nUPPERCASE name = saved to disk", 12f, Theme.current.textMuted)
     val ll = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
+        addView(hint)
         addView(nameEt)
         addView(valEt)
     }
     val d = AlertDialog.Builder(this)
         .setTitle(if (existing == null) "ADD VARIABLE" else "EDIT VARIABLE")
-        .setMessage(if (existing == null) "lowercase name = RAM only\nUPPERCASE name = saved to disk" else null)
         .setView(ll)
         .setPositiveButton("SET") { _, _ ->
             val n = nameEt.text.toString().trim()

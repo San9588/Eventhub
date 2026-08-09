@@ -51,7 +51,7 @@ private fun MainActivity.buildHomeHero(): View {
 
     val header = Maniflow.header(
         this, "Maniflow",
-        status = if (running) "Chal raha hai" else "Service band hai",
+        status = if (running) "Running" else "Service stopped",
         headline = flowHeadline(),
         actionIcon = R.drawable.ic_settings,
         actionContentDescription = "Settings",
@@ -71,7 +71,7 @@ private fun MainActivity.buildHomeHero(): View {
         gravity = Gravity.CENTER
     }
     statRow.addView(
-        Maniflow.statCard(this, R.drawable.ic_bolt, t.statGreen, "0", "Flows chal rahe", valueTag = "stat.flows"),
+        Maniflow.statCard(this, R.drawable.ic_bolt, t.statGreen, "0", "Active flows", valueTag = "stat.flows"),
         LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
     )
     statRow.addView(
@@ -89,8 +89,8 @@ private fun MainActivity.buildHomeHero(): View {
         topMargin = dp(6f)
     })
 
-    col.addView(Maniflow.sectionLabel(this, "Tumhare flows", topMargin = 22))
-    homeEmpty = Maniflow.text(this, "Abhi koi flow nahi hai.\nTap + se naya flow banao.", 14f, t.textMuted).apply {
+    col.addView(Maniflow.sectionLabel(this, "Your Flows", topMargin = 22))
+    homeEmpty = Maniflow.text(this, "No flows yet.\nTap + to create one", 14f, t.textMuted).apply {
         setPadding(dp(2f), dp(6f), dp(2f), dp(10f))
     }
     col.addView(homeEmpty)
@@ -109,7 +109,7 @@ private fun MainActivity.buildChatCard(): View {
         setColorFilter(t.accentPrimary)
     }, LinearLayout.LayoutParams(dp(22f), dp(22f)))
     inner.addView(
-        Maniflow.text(ctx, "Maniflow se bolo, wo bana dega...", 14f, t.textMuted).apply {
+        Maniflow.text(ctx, "Ask Maniflow, and it will build it...", 14f, t.textMuted).apply {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         },
@@ -131,8 +131,8 @@ private fun MainActivity.buildChatCard(): View {
 }
 
 private fun MainActivity.flowHeadline(): String =
-    if (profiles.isEmpty()) "Abhi koi flow nahi hai"
-    else "${profiles.size} flows tumhare din ko dekh rahe hain"
+    if (profiles.isEmpty()) "No flows yet"
+    else "${profiles.size} flows are managing your day"
 
 private fun flowTint(pos: Int): Int {
     val tints = listOf(

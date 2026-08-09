@@ -142,6 +142,7 @@ class MainActivity : Activity() {
     internal fun aiSettingsUiReady(): Boolean = ::aiKeyStatusTv.isInitialized && ::recentThemesBox.isInitialized
 
     private var renderedGeneration = -1
+    internal var aiThemesFingerprint = 0
     private var pendingOpenTab = -1
     private var themeReceiverRegistered = false
     private val themeResetReceiver = object : BroadcastReceiver() {
@@ -515,9 +516,9 @@ class MainActivity : Activity() {
         userVars = UserVars.entries(this).map { VarEntry(it.first, it.second, UserVars.isDiskName(it.first)) }
 
         if (::homeHeaderStatus.isInitialized) {
-            homeHeaderStatus.text = if (running) "Chal raha hai" else "Service band hai"
-            homeHeadline.text = if (profiles.isEmpty()) "Abhi koi flow nahi hai"
-            else "${profiles.size} flows tumhare din ko dekh rahe hain"
+            homeHeaderStatus.text = if (running) "Running" else "Service stopped"
+            homeHeadline.text = if (profiles.isEmpty()) "No flows yet"
+            else "${profiles.size} flows are managing your day"
             statFlows.text = profiles.count { it.enabled }.toString()
             statTasks.text = tasks.size.toString()
             statBattery.text = battText

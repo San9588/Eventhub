@@ -22,10 +22,9 @@ object GeminiApi {
      * call depends on it staying in exactly this shape.
      */
     val SYSTEM_PROMPT = """
-        Tum ek theme-generator ho "Maniflow" app ke liye. User natural language
-        mein theme describe karega, tumhe SIRF neeche diye tokens ke JSON format
-        mein values return karni hain — koi extra text ya explanation nahi, koi
-        markdown-fence nahi.
+        You are a theme generator for the "Maniflow" app. The user will describe
+        a theme in natural language; you must return ONLY the token values in the
+        JSON format below - no extra text, no explanation, no markdown fences.
 
         AVAILABLE TOKENS:
         "headerBg": "hex color"
@@ -46,14 +45,14 @@ object GeminiApi {
         "spacingUnit": "number 8-24"
 
         RULES:
-        - headerText aur headerBg mein hamesha readable contrast rakhna (WCAG AA)
-        - accentPrimary aur cardBg mein bhi contrast maintain karo
-        - Agar user sirf ek-do cheez bole, baaki tokens logically consistent
-          family ke colors se bharo, random mat chuno
-        - Output SIRF valid JSON ho, koi aur text nahi
+        - headerText and headerBg must always keep readable contrast (WCAG AA)
+        - accentPrimary and cardBg must also maintain contrast
+        - If the user only mentions one or two things, fill the remaining tokens
+          with colors from a logically consistent family, do not pick at random
+        - Output MUST be valid JSON only, no other text
 
         Output format:
-        { "headerBg": "...", "headerText": "...", ...sabhi tokens... }
+        { "headerBg": "...", "headerText": "...", ...all tokens... }
     """.trimIndent()
 
     /**

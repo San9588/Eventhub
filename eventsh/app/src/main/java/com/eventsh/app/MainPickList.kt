@@ -131,14 +131,13 @@ fun MainActivity.pickEvent(onPick: (String) -> Unit) {
         val sel = filtered[pos]
         if (sel == "custom...") {
             val input = EditText(this).apply {
-                hint = "broadcast action string"
+                hint = "your event name or any broadcast action"
                 setTextColor(t.textPrimary)
                 setHintTextColor(t.textMuted)
                 textSize = 18f
             }
             AlertDialog.Builder(this)
                 .setTitle("CUSTOM EVENT")
-                .setMessage("your event name or any broadcast action")
                 .setView(input)
                 .setPositiveButton("OK") { _, _ ->
                     val v = input.text.toString().trim()
