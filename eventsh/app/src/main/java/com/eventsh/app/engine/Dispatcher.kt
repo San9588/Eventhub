@@ -32,24 +32,43 @@ object Dispatcher {
     private val manualRuns = ConcurrentHashMap.newKeySet<String>()
 
     /**
-     * Runs a task's actions standalone (Tasks-tab Play button), outside any
-     * profile trigger. Returns false when the task is missing or already
-     * running. Execution happens on a worker thread so the UI never blocks.
+     * Runs a saved task by id (Tasks-tab Play button).
+     * Returns false when the task is missing or already running.
      */
     fun runTask(ctx: Context, taskId: String): Boolean {
         val task = Store.tasks(ctx).find { it.id == taskId } ?: return false
-        if (!manualRuns.add(taskId)) return false
+        return runTaskNow(ctx, task)
+    }
+
+    /**
+     * Runs a task's actions standalone (Task editor Run button), outside any
+     * profile trigger. Unlike [runTask] it takes the Task object directly so
+     * unsaved edits can be tested. Returns false when already running.
+     * Execution happens on a worker thread so the UI never blocks.
+     *
+     * [onResult] fires on that worker thread for every executed action
+     * (index, ok, short message); the trailing (-1, true, "finished") signals
+     * the end of the run. Only the top-level task reports - nested tasks
+     * launched by Task Run keep their own indexes and do not collide.
+     */
+    fun runTaskNow(
+        ctx: Context,
+        task: Task,
+        onResult: ((index: Int, ok: Boolean, msg: String) -> Unit)? = null
+    ): Boolean {
+        if (!manualRuns.add(task.id)) return false
         Thread {
             try {
                 val vars = Vars.all(ctx, "manual", mapOf("summary" to task.name))
                 val pseudo = Profile(id = task.id, name = task.name, taskId = task.id)
                 EventLog.push("[${task.name}] manual run started")
-                runActions(ctx, pseudo, task, vars, 1, "manual", task.name)
+                runActions(ctx, pseudo, task, vars, 1, "manual", task.name, 0, onResult)
             } catch (e: Exception) {
                 Log.w(TAG, "manual task run failed", e)
             } finally {
-                manualRuns.remove(taskId)
+                manualRuns.remove(task.id)
                 EventLog.push("[${task.name}] manual run finished")
+                onResult?.invoke(-1, true, "finished")
             }
         }.apply { name = "eventsh-run"; start() }
         return true
@@ -122,7 +141,8 @@ object Dispatcher {
         attempts: Int,
         event: String,
         summary: String,
-        depth: Int = 0
+        depth: Int = 0,
+        onResult: ((index: Int, ok: Boolean, msg: String) -> Unit)? = null
     ) {
         val actions = task.actions
         var pc = 0
@@ -130,6 +150,7 @@ object Dispatcher {
         var steps = 0
         val maxSteps = actions.size * 1000 + 1000
         stopFlags[task.id] = AtomicBoolean(false)
+        val report = if (depth == 0) onResult else null
         while (pc < actions.size) {
             if (stopFlags[task.id]?.get() == true) break
             val a = actions[pc]
@@ -184,7 +205,10 @@ object Dispatcher {
                 }
                 else -> {
                     if (guardPasses(ctx, a, vars)) {
-                        execute(ctx, profile, task, a, vars, attempts, event, summary, depth)
+                        val ok = execute(ctx, profile, task, a, vars, attempts, event, summary, depth)
+                        report?.invoke(pc, ok, if (ok) "ok" else "failed")
+                    } else {
+                        report?.invoke(pc, false, "IF guard not matched")
                     }
                     pc++
                 }
@@ -369,18 +393,18 @@ object Dispatcher {
         event: String,
         summary: String,
         depth: Int = 0
-    ) {
-        try {
+    ): Boolean {
+        return try {
             when (a.type) {
                 Actions.SHELL -> if (a.value.isNotBlank()) {
                     val cmd = Vars.resolve(a.value, vars)
                     retry(attempts, "shell", profile.name) { runShell(ctx, profile, cmd, vars) }
-                }
+                } else true
 
                 Actions.SCRIPT -> if (a.value.isNotBlank()) {
                     val taskName = Vars.resolve(a.value, vars)
                     retry(attempts, "tasker", profile.name) { termuxTask(ctx, taskName, vars, event, summary) }
-                }
+                } else true
 
                 Actions.INTENT -> if (a.value.isNotBlank()) {
                     val action = Vars.resolve(a.value, vars)
@@ -398,7 +422,7 @@ object Dispatcher {
                             false
                         }
                     }
-                }
+                } else true
 
                 Actions.NOTIFY -> retry(attempts, "notify", profile.name) {
                     try {
@@ -434,13 +458,15 @@ object Dispatcher {
                             }
                         }
                     }.start()
-                }
+                    true
+                } else true
 
                 Actions.FLASH -> {
                     val text = Vars.resolve(a.value, vars).ifBlank { summary }
                     val secs = (Vars.resolve(a.extra, vars).toIntOrNull() ?: 0).coerceIn(0, 30)
                     Flash.show(ctx, text, if (secs > 0) secs * 1000L else 2000L)
                     EventLog.push("[${profile.name}] flash: ${text.take(80)}")
+                    true
                 }
 
                 Actions.SPEAK -> if (a.value.isNotBlank()) {
@@ -449,7 +475,8 @@ object Dispatcher {
                     val rate = Vars.resolve(a.extra2, vars).toFloatOrNull() ?: 1f
                     val ok = Tts.speak(ctx, text, pitch, rate)
                     EventLog.push("[${profile.name}] speak -> ${if (ok) "ok" else "failed"}")
-                }
+                    ok
+                } else true
 
                 Actions.HTTP -> if (a.value.isNotBlank()) {
                     val cfg = Actions.httpCfg(a.extra2)
@@ -473,7 +500,7 @@ object Dispatcher {
                             false
                         }
                     }
-                }
+                } else true
 
                 Actions.VAR_SET -> {
                     val name = Vars.resolve(a.value, vars).trim()
@@ -485,7 +512,8 @@ object Dispatcher {
                         UserVars.set(ctx, name, result)
                         vars[name] = result
                         EventLog.push("[${profile.name}] var %$name = $result")
-                    }
+                        true
+                    } else false
                 }
 
                 Actions.VAR_SPLIT -> {
@@ -501,7 +529,8 @@ object Dispatcher {
                             vars[k] = p
                         }
                         EventLog.push("[${profile.name}] split %$name -> ${parts.size} part(s)")
-                    }
+                        true
+                    } else false
                 }
 
                 Actions.VAR_JOIN -> {
@@ -521,7 +550,8 @@ object Dispatcher {
                         UserVars.set(ctx, base, joined)
                         vars[base] = joined
                         EventLog.push("[${profile.name}] joined %$base from ${parts.size} part(s)")
-                    }
+                        true
+                    } else false
                 }
 
                 Actions.VAR_QUERY -> {
@@ -536,6 +566,7 @@ object Dispatcher {
                     } else {
                         EventLog.push("[${profile.name}] %$name = ${v ?: "(unset)"}")
                     }
+                    true
                 }
 
                 Actions.ARRAY_SET -> {
@@ -544,7 +575,8 @@ object Dispatcher {
                         val list = parseValueList(a.extra, vars)
                         writeArray(ctx, vars, name, list)
                         EventLog.push("[${profile.name}] array %$name set (${list.size})")
-                    }
+                        true
+                    } else false
                 }
 
                 Actions.ARRAY_PUSH -> {
@@ -555,7 +587,8 @@ object Dispatcher {
                         cur.addAll(added)
                         writeArray(ctx, vars, name, cur)
                         EventLog.push("[${profile.name}] array %$name push +${added.size} (${cur.size})")
-                    }
+                        true
+                    } else false
                 }
 
                 Actions.ARRAY_PROCESS -> {
@@ -576,10 +609,12 @@ object Dispatcher {
                         if (out != null) {
                             writeArray(ctx, vars, name, out)
                             EventLog.push("[${profile.name}] array %$name $op -> ${out.size}")
+                            true
                         } else {
                             EventLog.push("[${profile.name}] array process: unknown op '$op' (reverse|sort|sort desc|unique|upper|lower|trim)")
+                            false
                         }
-                    }
+                    } else false
                 }
 
                 Actions.ARRAY_POP -> {
@@ -599,10 +634,12 @@ object Dispatcher {
                                 vars[target] = popped
                             }
                             EventLog.push("[${profile.name}] array %$name popped '$popped' (${cur.size} left)")
+                            true
                         } else {
                             EventLog.push("[${profile.name}] array %$name pop: empty or bad index")
+                            false
                         }
-                    }
+                    } else false
                 }
 
                 Actions.ARRAY_CLEAR -> {
@@ -620,26 +657,28 @@ object Dispatcher {
                         UserVars.remove(ctx, name)
                         vars.remove(name)
                         EventLog.push("[${profile.name}] array %$name cleared")
-                    }
+                        true
+                    } else false
                 }
 
-                Actions.WIFI_ON -> systemToggle(ctx, profile, a, "Wifi On", attempts)
-                Actions.WIFI_OFF -> systemToggle(ctx, profile, a, "Wifi Off", attempts)
-                Actions.BT_ON -> systemToggle(ctx, profile, a, "Bluetooth On", attempts)
-                Actions.BT_OFF -> systemToggle(ctx, profile, a, "Bluetooth Off", attempts)
-                Actions.DATA_ON -> systemToggle(ctx, profile, a, "Mobile Data On", attempts)
-                Actions.DATA_OFF -> systemToggle(ctx, profile, a, "Mobile Data Off", attempts)
-                Actions.DISPLAY_ON -> systemToggle(ctx, profile, a, "Display On", attempts)
-                Actions.DISPLAY_OFF -> systemToggle(ctx, profile, a, "Display Off", attempts)
-                Actions.ROTATE_ON -> systemToggle(ctx, profile, a, "Auto-Rotate On", attempts)
-                Actions.ROTATE_OFF -> systemToggle(ctx, profile, a, "Auto-Rotate Off", attempts)
+                Actions.WIFI_ON -> { systemToggle(ctx, profile, a, "Wifi On", attempts); true }
+                Actions.WIFI_OFF -> { systemToggle(ctx, profile, a, "Wifi Off", attempts); true }
+                Actions.BT_ON -> { systemToggle(ctx, profile, a, "Bluetooth On", attempts); true }
+                Actions.BT_OFF -> { systemToggle(ctx, profile, a, "Bluetooth Off", attempts); true }
+                Actions.DATA_ON -> { systemToggle(ctx, profile, a, "Mobile Data On", attempts); true }
+                Actions.DATA_OFF -> { systemToggle(ctx, profile, a, "Mobile Data Off", attempts); true }
+                Actions.DISPLAY_ON -> { systemToggle(ctx, profile, a, "Display On", attempts); true }
+                Actions.DISPLAY_OFF -> { systemToggle(ctx, profile, a, "Display Off", attempts); true }
+                Actions.ROTATE_ON -> { systemToggle(ctx, profile, a, "Auto-Rotate On", attempts); true }
+                Actions.ROTATE_OFF -> { systemToggle(ctx, profile, a, "Auto-Rotate Off", attempts); true }
 
-                Actions.WAIT -> if (a.value.isNotBlank()) {
+                Actions.WAIT -> {
                     val secs = (Vars.resolve(a.value, vars).toIntOrNull() ?: 0).coerceIn(0, 86400)
                     if (secs > 0) {
                         EventLog.push("[${profile.name}] waiting ${secs}s")
                         Thread.sleep(secs * 1000L)
                     }
+                    true
                 }
 
                 Actions.WAIT_UNTIL -> {
@@ -654,6 +693,7 @@ object Dispatcher {
                         Thread.sleep(500)
                     }
                     if (evalCondition(cond, vars)) EventLog.push("[${profile.name}] wait-until condition met")
+                    true
                 }
 
                 Actions.SET_ALARM -> {
@@ -667,6 +707,7 @@ object Dispatcher {
                     // su just switches to the `am start` root path
                     if (cfg.useSu) AlarmEngine.setAlarmSu(ctx, label, hour, minute, cfg.vibrate)
                     else AlarmEngine.setAlarmSystem(ctx, label, hour, minute, cfg)
+                    true
                 }
 
                 Actions.CANCEL_ALARM -> {
@@ -679,6 +720,7 @@ object Dispatcher {
                     } else {
                         EventLog.push("[alarm] cancel '$label' - open the clock app to dismiss system alarms (no public API)")
                     }
+                    true
                 }
 
                 Actions.ALARM_VOLUME -> {
@@ -697,6 +739,7 @@ object Dispatcher {
                             Log.w(TAG, "alarm volume failed", e)
                         }
                     }
+                    true
                 }
 
                 Actions.TASK_RUN -> if (a.value.isNotBlank()) {
@@ -705,6 +748,7 @@ object Dispatcher {
                     if (t != null) {
                         if (depth >= 32) {
                             EventLog.push("[${profile.name}] task run depth limit hit for '${t.name}'")
+                            false
                         } else {
                             retry(attempts, "task", profile.name) {
                                 runActions(ctx, profile, t, vars, attempts, event, summary, depth + 1)
@@ -713,8 +757,9 @@ object Dispatcher {
                         }
                     } else {
                         EventLog.push("[${profile.name}] task '$name' not found")
+                        false
                     }
-                }
+                } else true
 
                 Actions.TASK_STOP -> {
                     val name = Vars.resolve(a.value, vars).trim()
@@ -730,6 +775,7 @@ object Dispatcher {
                             EventLog.push("[${profile.name}] task '$name' not found")
                         }
                     }
+                    true
                 }
 
                 Actions.TASK_ENABLE, Actions.TASK_DISABLE -> if (a.value.isNotBlank()) {
@@ -744,10 +790,12 @@ object Dispatcher {
                             Store.saveTasks(ctx, cur)
                         }
                         EventLog.push("[${profile.name}] task '${t.name}' ${if (on) "enabled" else "disabled"}")
+                        true
                     } else {
                         EventLog.push("[${profile.name}] task '$name' not found")
+                        false
                     }
-                }
+                } else true
 
                 Actions.PROFILE_ENABLE, Actions.PROFILE_DISABLE, Actions.PROFILE_DELETE -> {
                     val name = Vars.resolve(a.value, vars)
@@ -771,13 +819,21 @@ object Dispatcher {
                             }
                         }
                         EventHub.resync(ctx)
+                        true
                     } else {
                         EventLog.push("[${profile.name}] profile '$name' not found")
+                        false
                     }
+                }
+
+                else -> {
+                    Log.w(TAG, "unknown action type ${a.type}")
+                    false
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "action ${a.type} failed", e)
+            false
         }
     }
 
@@ -916,14 +972,15 @@ object Dispatcher {
 
     /**
      * Runs an action up to [attempts] times with exponential backoff
-     * (2s, 4s, 8s...). Logs success / failure to the event log.
+     * (2s, 4s, 8s...). Logs success / failure to the event log and returns
+     * whether any attempt succeeded.
      */
     private fun retry(
         attempts: Int,
         channel: String,
         label: String,
         action: (attempt: Int) -> Boolean
-    ) {
+    ): Boolean {
         var delay = 2000L
         for (attempt in 1..attempts) {
             val ok = try {
@@ -934,14 +991,15 @@ object Dispatcher {
             }
             if (ok) {
                 if (attempt > 1) EventLog.push("[$label] $channel ok after retry $attempt")
-                return
+                return true
             }
             if (attempt < attempts) {
-                try { Thread.sleep(delay) } catch (e: InterruptedException) { return }
+                try { Thread.sleep(delay) } catch (e: InterruptedException) { return false }
                 delay *= 2
             }
         }
         EventLog.push("[$label] $channel FAILED after $attempts attempts")
+        return false
     }
 
     /**

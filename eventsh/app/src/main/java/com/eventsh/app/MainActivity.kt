@@ -750,7 +750,6 @@ class MainActivity : Activity() {
                     marginStart = dp(10f)
                 }
             )
-            header.addView(playStopButton(t))
             header.addView(iconButton(R.drawable.ic_edit, C.textSec, { this@MainActivity.openTaskEditor(t) }))
             card.addView(header)
 
@@ -778,27 +777,6 @@ class MainActivity : Activity() {
             contentDescription = "action"
             setOnClickListener { onClick() }
         }
-
-    private fun playStopButton(t: Task): View {
-        val running = Dispatcher.isTaskRunning(t.id)
-        return TextView(this).apply {
-            text = if (running) "STOP" else "RUN"
-            textSize = 12f
-            setPadding(dp(10f), dp(4f), dp(10f), dp(4f))
-            setTextColor(if (running) C.danger else C.accent)
-            background = UI.rounded(C.card, 10f, if (running) C.danger else C.accent, 1f)
-            setOnClickListener {
-                if (Dispatcher.isTaskRunning(t.id)) {
-                    Dispatcher.stopTask(t.id)
-                    EventLog.push("[ui] stopping ${t.name}")
-                } else {
-                    EventLog.push("[ui] running ${t.name} (${t.actions.size} actions)")
-                    Dispatcher.runTask(this@MainActivity, t.id)
-                }
-                handler.postDelayed({ refreshScreen() }, 350)
-            }
-        }
-    }
 
     inner class VarAdapter : BaseAdapter() {
         override fun getCount() = userVars.size

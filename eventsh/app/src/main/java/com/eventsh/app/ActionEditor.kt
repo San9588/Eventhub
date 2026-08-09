@@ -545,7 +545,12 @@ object ActionEditor {
 
         val d = AlertDialog.Builder(a)
             .setTitle("ACTION  ${existing.typeLabel()}")
-            .setMessage("Sets the alarm in the system clock app (no root, no UI). Tick 'Run with su' to set it via root instead.")
+            .setMessage(
+                "Sets the alarm in the system clock app (no root, no UI). " +
+                    "On Android 12+ it needs the 'Exact alarms' special permission " +
+                    "(Settings tab > Exact alarms) or the clock app refuses it. " +
+                    "Tick 'Run with su' to set it via root instead."
+            )
             .setView(ll)
             .setPositiveButton("OK") { _, _ ->
                 val label = labelEt.text.toString().trim()

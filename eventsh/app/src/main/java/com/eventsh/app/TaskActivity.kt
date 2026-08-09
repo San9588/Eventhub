@@ -18,6 +18,8 @@ import android.widget.Switch
 import android.widget.TextView
 import com.eventsh.app.engine.Action
 import com.eventsh.app.engine.CondSpec
+import com.eventsh.app.engine.Dispatcher
+import com.eventsh.app.engine.EventLog
 import com.eventsh.app.engine.Store
 import com.eventsh.app.engine.Task
 import com.eventsh.app.ui.C
@@ -39,6 +41,12 @@ class TaskActivity : Activity() {
     private lateinit var enSwitch: Switch
     private lateinit var actBox: LinearLayout
     private var scroll: ScrollView? = null
+
+    // live run (green = ok / red = failed) state, in-memory only
+    private val runMarks = mutableMapOf<Int, Int>()
+    private var runRunning = false
+    private lateinit var runBtn: TextView
+    private val runHandler = Handler(Looper.getMainLooper())
 
     // long-press drag-and-drop reorder state
     private var dragIndex = -1
@@ -146,6 +154,11 @@ class TaskActivity : Activity() {
         ll.addView(rtEt)
 
         ll.addView(ActionEditor.sectionLabel(this, "ACTIONS (tap row = edit; long-press + drag = reorder)"))
+        ll.addView(buildRunBar())
+        if (Dispatcher.isTaskRunning(runId())) {
+            runRunning = true
+            setRunButton(true)
+        }
         actBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         refreshActs()
         ll.addView(actBox)
@@ -178,32 +191,38 @@ class TaskActivity : Activity() {
             ActionEditor.actionTypePick(this) { type ->
                 ActionEditor.actionDialog(
                     this, Action(type),
-                    onSave = { na -> actions.add(na); refreshActs() }
+                    onSave = { na -> actions.add(na); runMarks.clear(); refreshActs() }
                 )
             }
         })
         setupDragListener()
     }
 
-    /** Builds one action tile: order number on the left, content, drag grip. */
+    /** Builds one action tile: order number on the left, content, status dot, drag grip. */
     private fun actionRow(i: Int): View {
         val a = actions[i]
         val condLine = a.condTerms()?.let { (t, j) -> CondSpec.summary(t, j) }
         val labelPrefix = if (a.label.isBlank()) "" else "{${a.label}}  "
         val text = "$labelPrefix${a.typeLabel()}  ${a.summary()}" +
             (if (condLine.isNullOrBlank()) "" else "   [IF $condLine]")
+        val border = when (runMarks[i]) {
+            ST_OK -> C.ok
+            ST_FAIL -> C.danger
+            ST_RUN -> C.accent
+            else -> C.border
+        }
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = UI.rounded(C.card, 10f, C.border, 1f)
+            background = UI.rounded(C.card, 10f, border, 1f)
             setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             isClickable = true
             isLongClickable = true
             setOnClickListener {
                 ActionEditor.actionDialog(
                     this@TaskActivity, a,
-                    onSave = { na -> actions[i] = na; refreshActs() },
-                    onRemove = { actions.removeAt(i); refreshActs() }
+                    onSave = { na -> actions[i] = na; runMarks.clear(); refreshActs() },
+                    onRemove = { actions.removeAt(i); runMarks.clear(); refreshActs() }
                 )
             }
             setOnLongClickListener { v ->
@@ -233,8 +252,29 @@ class TaskActivity : Activity() {
             UI.text(this, text, 15f, C.text),
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
+        wrap.addView(statusDot(i), LinearLayout.LayoutParams(dp(12f), dp(12f)).apply {
+            marginEnd = dp(8f)
+        })
         wrap.addView(UI.text(this, "≡", 18f, C.hint))
         return wrap
+    }
+
+    /** Colored circle reflecting the last manual-run result of action [i]. */
+    private fun statusDot(i: Int): TextView {
+        val st = runMarks[i]
+        return UI.text(this, "●", 13f, when (st) {
+            ST_OK -> C.ok
+            ST_FAIL -> C.danger
+            ST_RUN -> C.accent
+            else -> C.disabled
+        }).apply {
+            contentDescription = when (st) {
+                ST_OK -> "ran ok"
+                ST_FAIL -> "failed"
+                ST_RUN -> "running"
+                else -> null
+            }
+        }
     }
 
     /** Rebuilds rows in place as the dragged tile crosses boundaries. */
@@ -291,6 +331,84 @@ class TaskActivity : Activity() {
         if (to < 0 || to > actions.size || to == from) return
         val moved = actions.removeAt(from)
         actions.add(if (to > from) to - 1 else to, moved)
+    }
+
+    /** RUN / STOP control shown right inside the actions list. */
+    private fun buildRunBar(): View {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(2f), dp(4f), dp(6f))
+        }
+        runBtn = TextView(this).apply {
+            text = "RUN TASK"
+            textSize = 15f
+            setTextColor(C.onPrimary)
+            gravity = Gravity.CENTER
+            boldText()
+            setPadding(dp(14f), dp(11f), dp(14f), dp(11f))
+            background = UI.rounded(C.primary, 12f)
+            setOnClickListener { onRunTap() }
+        }
+        bar.addView(runBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginEnd = dp(10f)
+        })
+        bar.addView(
+            UI.text(this, "runs every action, marks it green (ok) or red (failed)", 12f, C.hint)
+        )
+        return bar
+    }
+
+    private fun onRunTap() {
+        if (runRunning) {
+            Dispatcher.stopTask(runId())
+            EventLog.push("[ui] task stop requested")
+            setRunButton(false)
+            return
+        }
+        if (actions.isEmpty()) {
+            EventLog.push("[ui] no actions to run yet")
+            return
+        }
+        runMarks.clear()
+        val task = currentRunTask()
+        EventLog.push("[ui] running ${task.name} (${task.actions.size} actions)")
+        val started = Dispatcher.runTaskNow(this, task) { idx, ok, _ ->
+            runHandler.post {
+                if (idx < 0) {
+                    runRunning = false
+                    setRunButton(false)
+                } else {
+                    runMarks[idx] = if (ok) ST_OK else ST_FAIL
+                }
+                refreshActs()
+            }
+        }
+        if (started) {
+            runRunning = true
+            setRunButton(true)
+        }
+        refreshActs()
+    }
+
+    /** Stable id for the RUN button: the saved id, or a temp one for unsaved tasks. */
+    private fun runId(): String = taskId.ifBlank { "tk_tmp_" + actions.hashCode() }
+
+    /** Snapshot of the current editor state to hand to the runner. */
+    private fun currentRunTask(): Task {
+        val id = runId()
+        return (existing ?: Task(id = id, name = "TASK")).copy(
+            name = nameEt.text.toString().trim().ifBlank { "TASK" },
+            retries = (rtEt.text.toString().toIntOrNull() ?: 0).coerceIn(0, 10),
+            enabled = enSwitch.isChecked,
+            actions = actions.toList()
+        )
+    }
+
+    private fun setRunButton(running: Boolean) {
+        runBtn.text = if (running) "STOP" else "RUN TASK"
+        runBtn.setTextColor(if (running) C.text else C.onPrimary)
+        runBtn.background = UI.rounded(if (running) C.danger else C.primary, 12f)
     }
 
     private fun buildBottomBar(): View {
@@ -369,3 +487,8 @@ private const val DRAG_STARTED = 1
 private const val DRAG_LOCATION = 2
 private const val DRAG_DROP = 3
 private const val DRAG_ENDED = 4
+
+// Live-run status codes used by TaskActivity.runMarks.
+private const val ST_RUN = 1
+private const val ST_OK = 2
+private const val ST_FAIL = 3
