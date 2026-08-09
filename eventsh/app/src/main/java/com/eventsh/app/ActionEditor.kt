@@ -1,5 +1,7 @@
 package com.eventsh.app
 
+import com.eventsh.app.ui.showThemed
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -155,7 +157,7 @@ object ActionEditor {
             .setTitle("ADD ACTION (${defs.size})")
             .setView(box)
             .setNegativeButton("CANCEL", null)
-            .show()
+            .showThemed()
         lv.setOnItemClickListener { _, _, pos, _ ->
             if (pos in filtered.indices) {
                 onPick(filtered[pos].type)
@@ -256,7 +258,7 @@ object ActionEditor {
             .setTitle("CONNECT CONDITION WITH")
             .setItems(ops) { _, which -> onPick(ops[which].lowercase()) }
             .setNegativeButton("CANCEL", null)
-            .show()
+            .showThemed()
     }
 
     private fun operatorPick(a: Activity, onPick: (String) -> Unit) {
@@ -265,7 +267,7 @@ object ActionEditor {
             .setTitle("OPERATOR")
             .setItems(ops) { _, which -> onPick(ops[which]) }
             .setNegativeButton("CANCEL", null)
-            .show()
+            .showThemed()
     }
 
     /** Picker over every variable currently set in the app (plus common built-ins). */
@@ -285,7 +287,7 @@ object ActionEditor {
                 onPick(names[which])
             }
             .setNegativeButton("CANCEL", null)
-            .show()
+            .showThemed()
     }
 
     /** Picker over every task set in the app; taps a task name into the field. */
@@ -300,7 +302,7 @@ object ActionEditor {
                 onPick(names[which])
             }
             .setNegativeButton("CANCEL", null)
-            .show()
+            .showThemed()
     }
 
     /** Picker over every profile set in the app; taps a profile name into the field. */
@@ -315,7 +317,7 @@ object ActionEditor {
                 onPick(names[which])
             }
             .setNegativeButton("CANCEL", null)
-            .show()
+            .showThemed()
     }
 
     fun condTermDialog(
@@ -464,7 +466,7 @@ object ActionEditor {
                         .setTitle("ARRAY PROCESS")
                         .setItems(ops) { _, which -> extraEt?.setText(ops[which]) }
                         .setNegativeButton("CANCEL", null)
-                        .show()
+                        .showThemed()
                 })
             }
         }

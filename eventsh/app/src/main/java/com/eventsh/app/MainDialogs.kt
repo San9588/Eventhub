@@ -1,5 +1,7 @@
 package com.eventsh.app
 
+import com.eventsh.app.ui.showThemed
+
 import android.app.AlertDialog
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -80,7 +82,7 @@ fun MainActivity.timerDialog() {
             refreshScreen()
         }
         .setNegativeButton("CANCEL", null)
-        .show()
+        .showThemed()
 }
 
 fun MainActivity.varDialog(existing: MainActivity.VarEntry?) {
@@ -143,7 +145,7 @@ fun MainActivity.showPermissionsDialog(missing: List<Permissions.Need>) {
         .setTitle("PERMISSIONS NEEDED")
         .setView(box)
         .setPositiveButton("DONE", null)
-        .show()
+        .showThemed()
     permDialog = d
     refreshPermissions()
 }

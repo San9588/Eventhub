@@ -1,5 +1,7 @@
 package com.eventsh.app
 
+import com.eventsh.app.ui.showThemed
+
 import android.app.AlertDialog
 import android.content.Intent
 import android.widget.EditText
@@ -61,7 +63,7 @@ fun MainActivity.deleteProfile(p: Profile) {
             refreshScreen()
         }
         .setNegativeButton("CANCEL", null)
-        .show()
+        .showThemed()
 }
 
 fun MainActivity.testProfile(p: Profile) {
@@ -86,7 +88,7 @@ fun MainActivity.exportRules() {
             .setMessage("$np profiles, $nt tasks, $nv variables\n\n${f.absolutePath}\n\n'SAVE TO...' keeps a copy anywhere (Downloads, Drive, another app) for restore on any device.")
             .setPositiveButton("SAVE TO...") { _, _ -> saveBackupAs(pretty) }
             .setNegativeButton("OK", null)
-            .show()
+            .showThemed()
     } catch (e: Exception) {
         EventLog.push("[bak] export FAILED: ${e.message?.take(100) ?: "error"}")
     }
@@ -146,7 +148,7 @@ fun MainActivity.confirmImport(raw: String) {
         .setPositiveButton("REPLACE") { _, _ -> doImport(o, com.eventsh.app.engine.Backup.Mode.REPLACE) }
         .setNeutralButton("MERGE") { _, _ -> doImport(o, com.eventsh.app.engine.Backup.Mode.MERGE) }
         .setNegativeButton("CANCEL", null)
-        .show()
+        .showThemed()
 }
 
 fun MainActivity.doImport(o: org.json.JSONObject, mode: com.eventsh.app.engine.Backup.Mode) {
@@ -297,7 +299,7 @@ fun MainActivity.taskPickDialog(current: String, onPick: (String) -> Unit) {
             onPick(if (which == 0) "" else tasks[which - 1].id)
         }
         .setNegativeButton("CANCEL", null)
-        .show()
+        .showThemed()
 }
 
 /** Opens the full-page Task editor; null starts a fresh task. */

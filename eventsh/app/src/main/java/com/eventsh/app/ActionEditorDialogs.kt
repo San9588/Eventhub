@@ -1,5 +1,7 @@
 package com.eventsh.app
 
+import com.eventsh.app.ui.showThemed
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.TimePickerDialog
@@ -114,7 +116,7 @@ object ActionEditorDialogs {
                     methodTv.text = "METHOD: $method"
                 }
                 .setNegativeButton("CANCEL", null)
-                .show()
+                .showThemed()
         }
         val headersEt = ActionEditor.editText(a, "headers  key:value  (one per line / | / ;)").apply {
             setText(cfg.headers)

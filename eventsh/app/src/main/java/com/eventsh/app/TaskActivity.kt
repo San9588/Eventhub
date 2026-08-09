@@ -1,5 +1,7 @@
 package com.eventsh.app
 
+import com.eventsh.app.ui.showThemed
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -440,7 +442,7 @@ class TaskActivity : Activity() {
                 finish()
             }
             .setNegativeButton("CANCEL", null)
-            .show()
+            .showThemed()
     }
 
     private fun dp(v: Float): Int = ActionEditor.dp(this, v)

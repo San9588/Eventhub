@@ -1,5 +1,7 @@
 package com.eventsh.app
 
+import com.eventsh.app.ui.showThemed
+
 import android.app.AlertDialog
 import android.content.pm.ApplicationInfo
 import android.text.Editable
@@ -96,7 +98,7 @@ fun MainActivity.appPick(selected: Set<String>, onDone: (List<String>) -> Unit) 
             onDone(rows.filter { it is ApplicationInfo }.map { (it as ApplicationInfo).packageName }.filter { checked.contains(it) })
         }
         .setNegativeButton("CANCEL", null)
-        .show()
+        .showThemed()
 }
 
 fun MainActivity.pickEvent(onPick: (String) -> Unit) {
@@ -147,7 +149,7 @@ fun MainActivity.pickEvent(onPick: (String) -> Unit) {
                     }
                 }
                 .setNegativeButton("CANCEL", null)
-                .show()
+                .showThemed()
         } else {
             pickerDialog?.dismiss()
             onPick(sel)
@@ -192,5 +194,5 @@ fun MainActivity.pickEvent(onPick: (String) -> Unit) {
         .setTitle("CHOOSE EVENT (${all.size})")
         .setView(col)
         .setNegativeButton("CANCEL", null)
-        .show()
+        .showThemed()
 }

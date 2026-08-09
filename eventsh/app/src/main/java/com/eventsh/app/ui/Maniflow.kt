@@ -393,6 +393,9 @@ object Maniflow {
     }
 }
 
+/** Theme-aware equivalent of AlertDialog.Builder.show(). */
+fun AlertDialog.Builder.showThemed(): AlertDialog = create().also { Maniflow.showDialog(it) }
+
 /**
  * Custom animated switch used for every on/off control.
  * Green track + white thumb when ON, outlined gray track + gray thumb when OFF.

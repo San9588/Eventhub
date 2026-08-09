@@ -1,5 +1,7 @@
 package com.eventsh.app
 
+import com.eventsh.app.ui.showThemed
+
 import android.app.AlertDialog
 import android.app.TimePickerDialog
 import android.content.Context
@@ -41,7 +43,7 @@ fun MainActivity.addContext(list: MutableList<Ctx>, refresh: () -> Unit) {
             }
         }
         .setNegativeButton("CANCEL", null)
-        .show()
+        .showThemed()
 }
 
 fun MainActivity.editContext(list: MutableList<Ctx>, index: Int, refresh: () -> Unit) {
@@ -187,7 +189,7 @@ fun MainActivity.timeCtxDialog(existing: TimeCtx?, onSave: (TimeCtx) -> Unit, on
                 from = String.format(Locale.US, "%02d:%02d", hh, mm)
                 if (singleCb.isChecked) to = from
                 syncViews()
-            }, h, m, true).show()
+            }, h, m, true).showThemed()
         }
     }
     toTv = TextView(this).apply {

@@ -1,5 +1,7 @@
 package com.eventsh.app
 
+import com.eventsh.app.ui.showThemed
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.view.View
@@ -199,7 +201,7 @@ object Help {
             .setTitle("MANIFLOW HELP")
             .setView(scroll)
             .setPositiveButton("CLOSE", null)
-            .show()
+            .showThemed()
     }
 
     private fun heading(activity: Activity, text: String): TextView =
