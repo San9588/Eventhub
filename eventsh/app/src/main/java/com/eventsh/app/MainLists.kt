@@ -25,12 +25,25 @@ import com.eventsh.app.ui.withAlpha
  * list adapters plus the small views reused by every list screen.
  */
 
-internal fun MainActivity.emptyLabel(msg: String): TextView = TextView(this).apply {
-    text = msg
-    textSize = 14f
-    gravity = Gravity.CENTER
-    setTextColor(Theme.current.textMuted)
-    setLineSpacing(dp(4f).toFloat(), 1f)
+internal fun MainActivity.emptyLabel(title: String, subtitle: String): View {
+    val t = Theme.current
+    val col = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        setPadding(dp(4f), dp(8f), dp(4f), dp(8f))
+    }
+    col.addView(Maniflow.text(this, title, 16f, t.textPrimary, bold = true).apply {
+        gravity = Gravity.CENTER
+    })
+    col.addView(
+        Maniflow.text(this, subtitle, 13f, t.textMuted).apply {
+            gravity = Gravity.CENTER
+        },
+        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(6f)
+        }
+    )
+    return col
 }
 
 internal fun MainActivity.cardWrap(card: View): View {

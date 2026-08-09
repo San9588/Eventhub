@@ -109,18 +109,19 @@ class MainActivity : Activity() {
     internal lateinit var taskList: ListView
     internal lateinit var varList: ListView
     internal lateinit var logList: ListView
+    internal lateinit var settingsRoot: View
     internal lateinit var settingsScroll: ScrollView
     internal lateinit var homeHeaderStatus: TextView
     internal lateinit var homeHeadline: TextView
-    internal lateinit var homeEmpty: TextView
+    internal lateinit var homeEmpty: View
     internal lateinit var homePillService: TextView
     internal lateinit var homePillRoot: TextView
     internal lateinit var statFlows: TextView
     internal lateinit var statTasks: TextView
     internal lateinit var statBattery: TextView
-    internal lateinit var taskEmpty: TextView
-    internal lateinit var varEmpty: TextView
-    internal lateinit var logEmpty: TextView
+    internal lateinit var taskEmpty: View
+    internal lateinit var varEmpty: View
+    internal lateinit var logEmpty: View
     private lateinit var fabAdd: View
     private lateinit var fabAi: View
     internal lateinit var aboutText: TextView
@@ -349,6 +350,7 @@ class MainActivity : Activity() {
         taskRoot.visibility = if (i == TAB_TASKS) View.VISIBLE else View.GONE
         varRoot.visibility = if (i == TAB_VARS) View.VISIBLE else View.GONE
         logRoot.visibility = if (i == TAB_LOG) View.VISIBLE else View.GONE
+        settingsRoot.visibility = if (i == TAB_SETTINGS) View.VISIBLE else View.GONE
         settingsScroll.visibility = if (i == TAB_SETTINGS) View.VISIBLE else View.GONE
         fabAdd.visibility = if (i == TAB_SETTINGS || i == TAB_LOG) View.GONE else View.VISIBLE
         fabAi.visibility = fabAdd.visibility
@@ -405,7 +407,7 @@ class MainActivity : Activity() {
         taskList.adapter = taskAdapter
         taskList.setOnItemClickListener { _, _, pos, _ -> if (pos in tasks.indices) openTaskEditor(tasks[pos]) }
         tFrame.addView(taskList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        taskEmpty = emptyLabel("No tasks yet\nTap + to create one")
+        taskEmpty = emptyLabel("No tasks yet", "Tap + to create one")
         tFrame.addView(taskEmpty, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         contentFrame.addView(taskRoot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
@@ -422,7 +424,7 @@ class MainActivity : Activity() {
         varList.adapter = varAdapter
         varList.setOnItemClickListener { _, _, pos, _ -> if (pos in userVars.indices) varDialog(userVars[pos]) }
         vFrame.addView(varList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        varEmpty = emptyLabel("No variables yet\nTap + to add one")
+        varEmpty = emptyLabel("No variables yet", "Tap + to add one")
         vFrame.addView(varEmpty, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         contentFrame.addView(varRoot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
@@ -438,7 +440,7 @@ class MainActivity : Activity() {
         logAdapter = LogListAdapter(this)
         logList.adapter = logAdapter
         lFrame.addView(logList, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        logEmpty = emptyLabel("No events logged yet")
+        logEmpty = emptyLabel("No events logged yet", "Actions, events and errors appear here")
         lFrame.addView(logEmpty, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         contentFrame.addView(logRoot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 

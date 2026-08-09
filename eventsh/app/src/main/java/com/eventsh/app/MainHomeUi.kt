@@ -96,9 +96,7 @@ private fun MainActivity.buildHomeHero(): View {
     })
 
     col.addView(Maniflow.sectionLabel(this, "Your Profiles", topMargin = 22))
-    homeEmpty = Maniflow.text(this, "No profiles yet - tap + to begin", 14f, t.textMuted).apply {
-        setPadding(dp(2f), dp(6f), dp(2f), dp(10f))
-    }
+    homeEmpty = emptyLabel("No profiles yet", "Tap + to create one")
     col.addView(homeEmpty)
     return col
 }

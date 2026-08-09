@@ -34,6 +34,7 @@ fun MainActivity.buildSettings() {
         orientation = LinearLayout.VERTICAL
         setBackgroundColor(t.surfaceBg)
     }
+    settingsRoot = root
     root.addView(Maniflow.header(this, "Settings"))
 
     val scroll = ScrollView(this).apply { setBackgroundColor(t.surfaceBg) }
