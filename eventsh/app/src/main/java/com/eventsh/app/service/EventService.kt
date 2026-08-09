@@ -9,7 +9,6 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import com.eventsh.app.engine.AlarmEngine
 import com.eventsh.app.engine.Dispatcher
 import com.eventsh.app.engine.EventHub
 import com.eventsh.app.engine.EventLog
@@ -62,7 +61,6 @@ class EventService : Service() {
         RootBridge.checkAsync()
         Watchers.start(this)
         Scheduler.rescheduleAll(this)
-        AlarmEngine.rescheduleAll(this)
     }
 
     private fun hasLocationPermission(): Boolean {

@@ -58,8 +58,7 @@ data class Action(
         Actions.SET_ALARM -> {
             val cfg = Actions.alarmCfg(extra2)
             "Alarm ${value.ifBlank { "--:--" }}  ${extra.ifBlank { "(no label)" }}" +
-                (if (cfg.snoozeMin > 0) "  snooze ${cfg.snoozeMin}m" else "") +
-                (if (cfg.useSu) "  [su]" else "")
+                (if (cfg.useSu) "  [su]" else "  [system]")
         }
         Actions.CANCEL_ALARM -> "Cancel alarm ${value.ifBlank { "(all)" }}" + (if (extra2 == "su") "  [su]" else "")
         Actions.ALARM_VOLUME -> "Alarm volume ${value.ifBlank { "?" }}" + (if (extra2 == "su") "  [su]" else "")
@@ -371,14 +370,12 @@ object Actions {
     }
 
     // ------------------------------------------------------------- alarms
-    /** Parsed configuration of a "Set Alarm" action, packed into [Action.extra2]. */
+    /** Parsed configuration of a "Set Alarm" action, packed into [Action.extra2].
+     * Alarms always go to the system clock app (sound / snooze live there). */
     data class AlarmCfg(
-        val snoozeMin: Int = 5,
         val vibrate: Boolean = true,
-        val sound: String = "",
-        val useSu: Boolean = false,
-        /** True = hand the alarm to the system clock app (Tasker's no-root method). */
-        val useSystem: Boolean = true
+        /** True = set via the `am start` root command; false = public intent (no root). */
+        val useSu: Boolean = false
     )
 
     fun alarmCfg(s: String): AlarmCfg {
@@ -387,22 +384,16 @@ object Actions {
             val kv = raw.split("=", limit = 2)
             if (kv.size != 2) continue
             when (kv[0].trim()) {
-                "snooze" -> cfg = cfg.copy(snoozeMin = kv[1].trim().toIntOrNull() ?: cfg.snoozeMin)
                 "vibrate" -> cfg = cfg.copy(vibrate = kv[1].trim().toIntOrNull() == 1)
-                "sound" -> cfg = cfg.copy(sound = kv[1].trim())
                 "su" -> cfg = cfg.copy(useSu = kv[1].trim().toIntOrNull() == 1)
-                "sys" -> cfg = cfg.copy(useSystem = kv[1].trim().toIntOrNull() != 0)
             }
         }
         return cfg
     }
 
     fun alarmEncode(cfg: AlarmCfg): String = listOf(
-        "snooze=${cfg.snoozeMin}",
         "vibrate=${if (cfg.vibrate) 1 else 0}",
-        "sound=${cfg.sound}",
-        "su=${if (cfg.useSu) 1 else 0}",
-        "sys=${if (cfg.useSystem) 1 else 0}"
+        "su=${if (cfg.useSu) 1 else 0}"
     ).joinToString(",")
 
     // ------------------------------------------------------------- http

@@ -663,20 +663,21 @@ object Dispatcher {
                     val parts = hm.split(":")
                     val hour = parts.getOrNull(0)?.toIntOrNull() ?: 7
                     val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
-                    when {
-                        cfg.useSu -> AlarmEngine.setAlarmSu(ctx, label, hour, minute, cfg.vibrate)
-                        // no-root Tasker-style: hand off to the system clock app
-                        cfg.useSystem -> AlarmEngine.setAlarmSystem(ctx, label, hour, minute, cfg)
-                        else -> Thread { AlarmEngine.setAlarm(ctx, label, hour, minute, cfg) }.start()
-                    }
+                    // always the system clock app (no in-app alarm engine);
+                    // su just switches to the `am start` root path
+                    if (cfg.useSu) AlarmEngine.setAlarmSu(ctx, label, hour, minute, cfg.vibrate)
+                    else AlarmEngine.setAlarmSystem(ctx, label, hour, minute, cfg)
                 }
 
                 Actions.CANCEL_ALARM -> {
+                    // system-clock alarms live in the clock app - there is no
+                    // public API to cancel them silently, so without root we
+                    // just tell the user to open the clock app
                     val label = Vars.resolve(a.value, vars)
                     if (a.extra2 == "su") {
                         AlarmEngine.cancelAlarmSu(ctx)
                     } else {
-                        Thread { AlarmEngine.cancel(ctx, label) }.start()
+                        EventLog.push("[alarm] cancel '$label' - open the clock app to dismiss system alarms (no public API)")
                     }
                 }
 

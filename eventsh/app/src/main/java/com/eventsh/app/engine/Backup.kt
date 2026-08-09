@@ -147,7 +147,6 @@ object Backup {
         }
         Store.invalidate()
         Scheduler.rescheduleAll(ctx)
-        AlarmEngine.rescheduleAll(ctx)
     }
 
     /** Appends imported profiles/tasks, remapping task ids so links survive. */
