@@ -268,14 +268,14 @@ object Actions {
     data class Def(val type: String, val label: String, val category: String)
 
     val CATALOG: List<Def> = listOf(
-        Def(SCRIPT, "Termux Script", "EVENTSH"),
-        Def(SHELL, "Shell Command", "EVENTSH"),
-        Def(INTENT, "Send Broadcast", "EVENTSH"),
-        Def(NOTIFY, "Notify", "EVENTSH"),
-        Def(ROOT, "Root Command", "EVENTSH"),
-        Def(FLASH, "Flash", "EVENTSH"),
-        Def(SPEAK, "Speak", "EVENTSH"),
-        Def(HTTP, "HTTP Request", "EVENTSH"),
+        Def(SCRIPT, "Termux Script", "CORE"),
+        Def(SHELL, "Shell Command", "CORE"),
+        Def(INTENT, "Send Broadcast", "CORE"),
+        Def(NOTIFY, "Notify", "CORE"),
+        Def(ROOT, "Root Command", "CORE"),
+        Def(FLASH, "Flash", "CORE"),
+        Def(SPEAK, "Speak", "CORE"),
+        Def(HTTP, "HTTP Request", "CORE"),
         Def(VAR_SET, "Variable Set", "VARIABLE"),
         Def(VAR_SPLIT, "Variable Split", "VARIABLE"),
         Def(VAR_JOIN, "Variable Join", "VARIABLE"),

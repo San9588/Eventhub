@@ -21,7 +21,7 @@ import android.widget.TextView
  * permission a foreground Toast is used instead and a hint is logged.
  */
 object Flash {
-    private const val TAG = "EVENTSH"
+    private const val TAG = "MANIFLOW"
 
     @Volatile private var overlay: TextView? = null
     private val handler = Handler(Looper.getMainLooper())

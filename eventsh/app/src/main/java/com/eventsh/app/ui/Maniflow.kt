@@ -61,12 +61,15 @@ object Maniflow {
     /**
      * Curved dark page header.
      * [status] is the small muted line, [headline] the large bold line below it.
+     * [statusPills] renders a row of small status pills (green=on/OK, red=off,
+     * orange=tap-needed) under the title.
      */
     fun header(
         c: Context,
         title: String,
         status: String? = null,
         headline: String? = null,
+        statusPills: List<Pair<String, Boolean?>>? = null,
         onBack: (() -> Unit)? = null,
         actionIcon: Int? = null,
         actionContentDescription: String? = null,
@@ -119,6 +122,21 @@ object Maniflow {
             titleRow.addView(btn, LinearLayout.LayoutParams(dp(c, 42), dp(c, 42)))
         }
         wrap.addView(titleRow)
+
+        if (statusPills != null) {
+            val pillRow = LinearLayout(c).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            statusPills.forEachIndexed { i, (label, on) ->
+                val pill = pill(c, label, on)
+                pill.tag = "maniflow.header.pill.$i"
+                pillRow.addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(c, 10)
+                    if (i > 0) marginStart = dp(c, 6)
+                })
+            }
+            wrap.addView(pillRow)
+        }
 
         if (status != null) {
             val tv = text(c, status, 13f, t.headerText.withAlpha(153))
@@ -180,6 +198,37 @@ object Maniflow {
                 this.topMargin = dp(c, topMargin)
             }
         }
+
+    /**
+     * Small status pill. [on] true = green (on/OK), false = red (off),
+     * null = orange (tap needed).
+     */
+    fun pill(c: Context, label: String, on: Boolean?): TextView {
+        val t = Theme.current
+        val color = when (on) {
+            true -> t.ok
+            false -> t.statPink
+            null -> t.flowTintOrange
+        }
+        return text(c, label, 11f, color, bold = true).apply {
+            setPadding(dp(c, 9), dp(c, 4), dp(c, 9), dp(c, 4))
+            background = rounded(c, color.withAlpha(30), 999)
+        }
+    }
+
+    /** Restyles an existing pill view to a new label + state (for live refresh). */
+    fun restylePill(pill: TextView, label: String, on: Boolean?) {
+        val c = pill.context
+        val t = Theme.current
+        val color = when (on) {
+            true -> t.ok
+            false -> t.statPink
+            null -> t.flowTintOrange
+        }
+        pill.text = label
+        pill.setTextColor(color)
+        pill.background = rounded(c, color.withAlpha(30), 999)
+    }
 
     /**
      * Rounded-square icon badge. [dimmed] tints the icon + badge muted.

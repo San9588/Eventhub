@@ -60,7 +60,7 @@ import java.io.File
 class MainActivity : Activity() {
 
     // ------------------------------------------------------------ tabs
-    internal val TAB_NAMES = arrayOf("Home", "Tasks", "Vars", "Log", "Settings")
+    internal val TAB_NAMES = arrayOf("Profiles", "Tasks", "Vars", "Log", "Settings")
     internal val TAB_HOME = 0
     internal val TAB_TASKS = 1
     internal val TAB_VARS = 2
@@ -113,6 +113,8 @@ class MainActivity : Activity() {
     internal lateinit var homeHeaderStatus: TextView
     internal lateinit var homeHeadline: TextView
     internal lateinit var homeEmpty: TextView
+    internal lateinit var homePillService: TextView
+    internal lateinit var homePillRoot: TextView
     internal lateinit var statFlows: TextView
     internal lateinit var statTasks: TextView
     internal lateinit var statBattery: TextView
@@ -448,7 +450,7 @@ class MainActivity : Activity() {
         val t = Theme.current
         fabAdd = ImageView(this).apply {
             setImageResource(R.drawable.ic_add)
-            setColorFilter(0xFFFFFFFF.toInt())
+            setColorFilter(t.headerText)
             background = Maniflow.rounded(this@MainActivity, t.accentPrimary, 999)
             elevation = dp(6f).toFloat()
             setPadding(dp(16f), dp(16f), dp(16f), dp(16f))
@@ -463,12 +465,12 @@ class MainActivity : Activity() {
 
         fabAi = ImageView(this).apply {
             setImageResource(R.drawable.ic_ai)
-            setColorFilter(0xFFFFFFFF.toInt())
-            background = Maniflow.rounded(this@MainActivity, t.accentPrimary, 999)
+            setColorFilter(t.headerText)
+            background = Maniflow.rounded(this@MainActivity, t.headerBg, 999)
             elevation = dp(6f).toFloat()
             setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
-            contentDescription = "AI"
-            setOnClickListener { aiPlaceholder() }
+            contentDescription = "AI theme studio"
+            setOnClickListener { openThemeStudio() }
         }
         val lpAi = FrameLayout.LayoutParams(dp(48f), dp(48f))
         lpAi.gravity = Gravity.BOTTOM or Gravity.END
@@ -477,8 +479,8 @@ class MainActivity : Activity() {
         contentFrame.addView(fabAi)
     }
 
-    internal fun aiPlaceholder() {
-        android.widget.Toast.makeText(this, "AI generation coming soon", android.widget.Toast.LENGTH_SHORT).show()
+    internal fun openThemeStudio() {
+        startActivity(Intent(this, ThemeStudioActivity::class.java))
     }
 
     private fun refreshEmptyViews() {
@@ -517,8 +519,10 @@ class MainActivity : Activity() {
 
         if (::homeHeaderStatus.isInitialized) {
             homeHeaderStatus.text = if (running) "Running" else "Service stopped"
-            homeHeadline.text = if (profiles.isEmpty()) "No flows yet"
-            else "${profiles.size} flows are managing your day"
+            homeHeadline.text = if (profiles.isEmpty()) "No profiles yet - tap + to begin"
+            else "${profiles.size} flows tumhare din ko dekh rahe hain"
+            Maniflow.restylePill(homePillService, "SERVICE", running)
+            Maniflow.restylePill(homePillRoot, "ROOT", if (!rootChecked) null else rootOk)
             statFlows.text = profiles.count { it.enabled }.toString()
             statTasks.text = tasks.size.toString()
             statBattery.text = battText
@@ -534,44 +538,41 @@ class MainActivity : Activity() {
 
     private fun refreshSettings() {
         if (!::svcSwitch.isInitialized) return
-        val t = Theme.current
         svcSwitch.setChecked(running, animate = false)
         svcSwitchRow.text = if (running) "listening for events" else "stopped - profiles idle"
-        rootStatusTv.text = when {
-            !rootChecked -> "?"
-            rootOk -> "ON"
-            else -> "OFF"
-        }
-        rootStatusTv.setTextColor(if (rootOk) t.statGreen else t.statPink)
+        setStatusPill(rootStatusTv, "ROOT", when {
+            !rootChecked -> null
+            rootOk -> true
+            else -> false
+        })
         val shiz = com.eventsh.app.engine.ShizukuClient.available
-        shizukuStatusTv.text = if (shiz) "READY" else "TAP"
-        shizukuStatusTv.setTextColor(if (shiz) t.statGreen else t.flowTintOrange)
+        setStatusPill(shizukuStatusTv, "SHIZUKU", shiz)
         val usageNeed = Permissions.Need("usage", "Usage access", "", Permissions.Kind.SPECIAL, settingsAction = android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)
-        usageStatusTv.text = if (usageNeed.granted(this)) "OK" else "SET"
-        usageStatusTv.setTextColor(if (usageNeed.granted(this)) t.statGreen else t.flowTintOrange)
+        setStatusPill(usageStatusTv, "USAGE", usageNeed.granted(this))
         val notifNeed = Permissions.Need("notif_listener", "Notification access", "", Permissions.Kind.SPECIAL, settingsAction = android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-        notifStatusTv.text = if (notifNeed.granted(this)) "OK" else "SET"
-        notifStatusTv.setTextColor(if (notifNeed.granted(this)) t.statGreen else t.flowTintOrange)
+        setStatusPill(notifStatusTv, "NOTIF", notifNeed.granted(this))
         val overlayOk = com.eventsh.app.engine.Flash.canOverlay(this)
-        overlayStatusTv.text = if (overlayOk) "OK" else "SET"
-        overlayStatusTv.setTextColor(if (overlayOk) t.statGreen else t.flowTintOrange)
+        setStatusPill(overlayStatusTv, "OVERLAY", overlayOk)
         val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
         val exactOk = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
-        exactStatusTv.text = if (exactOk) "OK" else "SET"
-        exactStatusTv.setTextColor(if (exactOk) t.statGreen else t.flowTintOrange)
+        setStatusPill(exactStatusTv, "EXACT", exactOk)
         val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         val battOk = pm.isIgnoringBatteryOptimizations(packageName)
-        battOptStatusTv.text = if (battOk) "OK" else "SET"
-        battOptStatusTv.setTextColor(if (battOk) t.statGreen else t.flowTintOrange)
+        setStatusPill(battOptStatusTv, "BATTERY", battOk)
         val locOk = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
-        locStatusTv.text = if (locOk) "OK" else "SET"
-        locStatusTv.setTextColor(if (locOk) t.statGreen else t.flowTintOrange)
+        setStatusPill(locStatusTv, "LOCATION", locOk)
         if (::aboutText.isInitialized) {
-            aboutText.text = "Maniflow v0.1.0\n$ramText   $cpuText   battery $battText\nprofiles: ${profiles.count { it.enabled }} armed / ${profiles.size}"
+            aboutText.text = "Maniflow v0.1.0\n$ramText   $cpuText"
+            rootFrameFindStat("about.profiles")?.text = profiles.count { it.enabled }.toString()
+            rootFrameFindStat("about.tasks")?.text = tasks.size.toString()
+            rootFrameFindStat("about.batt")?.text = battText
         }
         refreshAiSettings()
     }
+
+    private fun rootFrameFindStat(tag: String): TextView? =
+        contentFrame.findViewWithTag<TextView>(tag)
 
     private fun updateStats() {
         if (!resumed) { cpuRef = 0L; return }

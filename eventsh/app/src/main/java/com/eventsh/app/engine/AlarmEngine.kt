@@ -32,7 +32,7 @@ import android.util.Log
  * there is nothing left to fall back to.
  */
 object AlarmEngine {
-    const val TAG = "EVENTSH"
+    const val TAG = "MANIFLOW"
     const val CHANNEL_ALARM_PERM = "alarm_perm"
 
     /**

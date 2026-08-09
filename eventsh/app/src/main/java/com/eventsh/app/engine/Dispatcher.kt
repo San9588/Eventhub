@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 // ============================================================================
-//  EVENTSH - Dispatcher FILE MAP
+//  MANIFLOW - Dispatcher FILE MAP
 // ----------------------------------------------------------------------------
 //  This file keeps ONLY the dispatcher core: entry points (fire / runTask /
 //  runTaskNow / stopTask), the per-task abort flags and the task runner loop
@@ -47,7 +47,7 @@ internal val dispatcherStopFlags = ConcurrentHashMap<String, AtomicBoolean>()
  * available to the actions that follow it.
  */
 object Dispatcher {
-    const val TAG = "EVENTSH"
+    const val TAG = "MANIFLOW"
     const val ACTION_OWN = "com.eventsh.TRIGGER"
     const val CHANNEL_EVENT = "events"
 
@@ -93,7 +93,7 @@ object Dispatcher {
                 EventLog.push("[${task.name}] manual run finished")
                 onResult?.invoke(-1, true, "finished")
             }
-        }.apply { name = "eventsh-run"; start() }
+        }.apply { name = "maniflow-run"; start() }
         return true
     }
 

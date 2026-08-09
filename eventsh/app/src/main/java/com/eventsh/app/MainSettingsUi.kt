@@ -110,11 +110,14 @@ private fun MainActivity.statusRow(
     subtitle: String,
     onClick: () -> Unit
 ): Pair<View, TextView> {
-    val status = Maniflow.text(this, "", 13f, Theme.current.textMuted).apply {
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
-    }
+    val status = Maniflow.pill(this, "", null)
     val row = Maniflow.listRow(this, icon, tint, title, subtitle = subtitle, trailing = status, onClick = onClick)
     return row to status
+}
+
+/** Restyles a Settings status row's pill: on=green, off=red, tap=orange. */
+internal fun MainActivity.setStatusPill(pill: TextView, label: String, on: Boolean?) {
+    Maniflow.restylePill(pill, label, on)
 }
 
 private fun MainActivity.engineCard(): View {
@@ -232,6 +235,24 @@ private fun MainActivity.aboutCard(): View {
     val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     aboutText = Maniflow.text(this, "", 13f, t.textMuted)
     col.addView(aboutText)
+    val statRow = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        setPadding(0, dp(12f), 0, 0)
+    }
+    statRow.addView(
+        Maniflow.statCard(this, R.drawable.ic_bolt, t.statGreen, "0", "profiles armed", valueTag = "about.profiles"),
+        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+    )
+    statRow.addView(
+        Maniflow.statCard(this, R.drawable.ic_list, t.flowTintOrange, "0", "tasks", valueTag = "about.tasks"),
+        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(8f) }
+    )
+    statRow.addView(
+        Maniflow.statCard(this, R.drawable.ic_log, t.statPink, "0", "battery %", valueTag = "about.batt"),
+        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(8f) }
+    )
+    col.addView(statRow)
     return Maniflow.card(this, col)
 }
 
@@ -276,16 +297,16 @@ private fun MainActivity.aiSettingsCard(): View {
 
     col.addView(Maniflow.listRow(
         this, R.drawable.ic_ai, t.accentPrimary, "Theme Studio",
-        subtitle = "Create your own theme with AI",
+        subtitle = "AI se apna theme banao",
         onClick = { startActivity(Intent(act, ThemeStudioActivity::class.java)) },
         showDivider = false
     ))
 
     col.addView(
-        Maniflow.button(this, "Reset to default theme", false) {
+        Maniflow.button(this, "Default theme pe wapas jao", false) {
             ThemeController.resetToDefault(act)
             rebuildUi()
-            Toast.makeText(act, "Default theme restored", Toast.LENGTH_SHORT).show()
+            Toast.makeText(act, "Default theme wapas aa gaya", Toast.LENGTH_SHORT).show()
         },
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12f)

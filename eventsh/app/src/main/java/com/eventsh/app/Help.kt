@@ -2,7 +2,6 @@ package com.eventsh.app
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.graphics.Typeface
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -212,11 +211,7 @@ object Help {
     private fun blockLine(activity: Activity, line: String): View {
         val t = Theme.current
         return when {
-            line.startsWith("# ") -> TextView(activity).apply {
-                text = line.substring(2)
-                textSize = 12.5f
-                setTextColor(t.textPrimary)
-                typeface = Typeface.MONOSPACE
+            line.startsWith("# ") -> Maniflow.text(activity, line.substring(2), 12.5f, t.textPrimary).apply {
                 setPadding(Maniflow.dp(activity, 8), Maniflow.dp(activity, 6), Maniflow.dp(activity, 8), Maniflow.dp(activity, 6))
                 background = Maniflow.rounded(activity, t.cardBg, 8)
             }

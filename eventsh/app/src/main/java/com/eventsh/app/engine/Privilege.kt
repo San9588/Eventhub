@@ -20,7 +20,7 @@ import android.util.Log
  * [PrivResult.DIRECT] so the caller can use the standard API.
  */
 object Privilege {
-    const val TAG = "EVENTSH"
+    const val TAG = "MANIFLOW"
     const val CHANNEL_PRIV = "privilege"
     const val NOTIF_ID = 0x5052
 

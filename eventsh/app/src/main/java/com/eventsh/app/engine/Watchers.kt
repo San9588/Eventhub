@@ -77,16 +77,16 @@ object Watchers {
         syncNeeds(c)
         synchronized(lock) {
             if (fgThread?.isAlive != true) {
-                fgThread = Thread { loopFg(c) }.apply { name = "eventsh-fg"; isDaemon = true; start() }
+                fgThread = Thread { loopFg(c) }.apply { name = "maniflow-fg"; isDaemon = true; start() }
             }
             if (statsThread?.isAlive != true) {
-                statsThread = Thread { loopStats(c) }.apply { name = "eventsh-stats"; isDaemon = true; start() }
+                statsThread = Thread { loopStats(c) }.apply { name = "maniflow-stats"; isDaemon = true; start() }
             }
             if (musicThread?.isAlive != true) {
-                musicThread = Thread { loopMusic(c) }.apply { name = "eventsh-music"; isDaemon = true; start() }
+                musicThread = Thread { loopMusic(c) }.apply { name = "maniflow-music"; isDaemon = true; start() }
             }
             if (fileHandlerThread?.isAlive != true) {
-                val ht = HandlerThread("eventsh-files").apply { start() }
+                val ht = HandlerThread("maniflow-files").apply { start() }
                 fileHandlerThread = ht
                 fileHandler = Handler(ht.looper)
             }
@@ -267,7 +267,7 @@ object Watchers {
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.w("EVENTSH", "fence handling failed", e)
+            android.util.Log.w("MANIFLOW", "fence handling failed", e)
         }
     }
 

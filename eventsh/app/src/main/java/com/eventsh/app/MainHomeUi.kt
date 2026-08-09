@@ -53,12 +53,18 @@ private fun MainActivity.buildHomeHero(): View {
         this, "Maniflow",
         status = if (running) "Running" else "Service stopped",
         headline = flowHeadline(),
+        statusPills = listOf(
+            "SERVICE" to running,
+            "ROOT" to if (!rootChecked) null else rootOk
+        ),
         actionIcon = R.drawable.ic_settings,
         actionContentDescription = "Settings",
         onAction = { selectTab(TAB_SETTINGS) }
     )
     homeHeaderStatus = header.findViewWithTag("maniflow.header.status") as TextView
     homeHeadline = header.findViewWithTag("maniflow.header.headline") as TextView
+    homePillService = header.findViewWithTag("maniflow.header.pill.0") as TextView
+    homePillRoot = header.findViewWithTag("maniflow.header.pill.1") as TextView
     col.addView(header)
 
     col.addView(buildChatCard(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -89,8 +95,8 @@ private fun MainActivity.buildHomeHero(): View {
         topMargin = dp(6f)
     })
 
-    col.addView(Maniflow.sectionLabel(this, "Your Flows", topMargin = 22))
-    homeEmpty = Maniflow.text(this, "No flows yet.\nTap + to create one", 14f, t.textMuted).apply {
+    col.addView(Maniflow.sectionLabel(this, "Tumhare profiles", topMargin = 22))
+    homeEmpty = Maniflow.text(this, "No profiles yet - tap + to begin", 14f, t.textMuted).apply {
         setPadding(dp(2f), dp(6f), dp(2f), dp(10f))
     }
     col.addView(homeEmpty)
@@ -109,7 +115,7 @@ private fun MainActivity.buildChatCard(): View {
         setColorFilter(t.accentPrimary)
     }, LinearLayout.LayoutParams(dp(22f), dp(22f)))
     inner.addView(
-        Maniflow.text(ctx, "Ask Maniflow, and it will build it...", 14f, t.textMuted).apply {
+        Maniflow.text(ctx, "Maniflow se bolo, wo bana dega...", 14f, t.textMuted).apply {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         },
@@ -119,7 +125,7 @@ private fun MainActivity.buildChatCard(): View {
     )
     inner.addView(ImageView(ctx).apply {
         setImageResource(R.drawable.ic_send)
-        setColorFilter(0xFFFFFFFF.toInt())
+        setColorFilter(t.headerText)
         setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
         background = Maniflow.rounded(ctx, t.accentPrimary, 999)
         contentDescription = "Send"
@@ -131,8 +137,8 @@ private fun MainActivity.buildChatCard(): View {
 }
 
 private fun MainActivity.flowHeadline(): String =
-    if (profiles.isEmpty()) "No flows yet"
-    else "${profiles.size} flows are managing your day"
+    if (profiles.isEmpty()) "No profiles yet - tap + to begin"
+    else "${profiles.size} flows tumhare din ko dekh rahe hain"
 
 private fun flowTint(pos: Int): Int {
     val tints = listOf(

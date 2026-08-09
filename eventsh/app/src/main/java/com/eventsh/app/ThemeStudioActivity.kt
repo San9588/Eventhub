@@ -73,7 +73,7 @@ class ThemeStudioActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(t.surfaceBg)
         }
-        col.addView(Maniflow.header(this, "Theme Studio", status = "Create your theme with AI", onBack = { finish() }))
+        col.addView(Maniflow.header(this, "Apni theme banao", status = "AI se apna theme banao", onBack = { finish() }))
         val scroll = ScrollView(this).apply { setBackgroundColor(t.surfaceBg) }
         body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -93,19 +93,19 @@ class ThemeStudioActivity : Activity() {
         if (!ThemeStore.hasApiKey(this)) {
             val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             inner.addView(
-                Maniflow.text(this, "Add your Gemini API key in Settings first", 14f, t.textMuted).apply {
+                Maniflow.text(this, "Pehle Settings mein Gemini API key add karo", 14f, t.textMuted).apply {
                     setPadding(dp(2f), dp(2f), dp(2f), dp(10f))
                 }
             )
-            inner.addView(Maniflow.button(this, "OPEN SETTINGS", true) { openSettings() })
+            inner.addView(Maniflow.button(this, "SETTINGS KHOLO", true) { openSettings() })
             body.addView(Maniflow.card(this, inner), matchWrap())
             return
         }
 
         val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        inner.addView(Maniflow.sectionLabel(this, "Describe your theme"))
+        inner.addView(Maniflow.sectionLabel(this, "Apni theme describe karo"))
         promptInput = EditText(this).apply {
-            hint = "e.g. a warm sunset orange theme"
+            hint = "e.g. sunset warm orange theme kardo"
             setHintTextColor(t.textMuted)
             setTextColor(t.textPrimary)
             textSize = 16f
@@ -129,14 +129,14 @@ class ThemeStudioActivity : Activity() {
 
     private fun buildGenerateButton(): View {
         val t = Theme.current
-        generateLabel = Maniflow.text(this, "Generate", 15f, 0xFFFFFFFF.toInt(), bold = true).apply {
+        generateLabel = Maniflow.text(this, "Generate", 15f, t.headerText, bold = true).apply {
             gravity = Gravity.CENTER
             setPadding(dp(28f), dp(12f), dp(28f), dp(12f))
         }
         generateProgress = ProgressBar(this).apply {
             isIndeterminate = true
             visibility = View.GONE
-            indeterminateTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(t.headerText)
         }
         generateBtn = FrameLayout(this).apply {
             isClickable = true
@@ -196,7 +196,7 @@ class ThemeStudioActivity : Activity() {
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
                     setLoading(false)
-                    toast("Could not generate the theme, please try again")
+                    toast("Theme generate nahi ho paya, dobara try karo")
                 }
             }
         }.start()
@@ -204,18 +204,19 @@ class ThemeStudioActivity : Activity() {
 
     private fun showAppliedSnackbar(onUndo: () -> Unit) {
         snackbarRef?.let { rootFrame.removeView(it) }
+        val t = Theme.current
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = Maniflow.rounded(this@ThemeStudioActivity, 0xFF101828.toInt(), 12)
+            background = Maniflow.rounded(this@ThemeStudioActivity, t.textPrimary, 12)
             elevation = Maniflow.dpf(this@ThemeStudioActivity, 6f).toFloat()
             setPadding(dp(16f), dp(12f), dp(10f), dp(12f))
         }
         bar.addView(
-            Maniflow.text(this, "Theme applied", 14f, 0xFFFFFFFF.toInt()),
+            Maniflow.text(this, "Theme apply ho gaya", 14f, t.headerText),
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
-        bar.addView(Maniflow.text(this, "UNDO", 14f, 0xFF4ADE80.toInt(), bold = true).apply {
+        bar.addView(Maniflow.text(this, "UNDO", 14f, t.statGreen, bold = true).apply {
             setPadding(dp(14f), dp(6f), dp(8f), dp(6f))
             setOnClickListener {
                 rootFrame.removeView(bar)
