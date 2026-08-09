@@ -50,6 +50,7 @@ internal fun MainActivity.cardWrap(card: View): View {
 
 /** Small tinted context chip shown inside expanded flow detail. */
 internal fun MainActivity.ctxChip(c: Ctx): View {
+    val act = this
     val t = Theme.current
     val (tag, color) = when (c) {
         is EventCtx -> "EV" to t.accentPrimary
@@ -65,7 +66,7 @@ internal fun MainActivity.ctxChip(c: Ctx): View {
         textSize = 12f
         setTextColor(color)
         setPadding(dp(8f), dp(5f), dp(8f), dp(5f))
-        background = Maniflow.rounded(this@MainActivity, t.accentPrimary.withAlpha(22), 8)
+        background = Maniflow.rounded(act, t.accentPrimary.withAlpha(22), 8)
     }
 }
 
@@ -115,16 +116,18 @@ internal fun MainActivity.actionRow(icon: Int, text: String, color: Int): View {
 }
 
 /** Small pill button used inside flow detail blocks. */
-internal fun MainActivity.miniButton(label: String, color: Int, onClick: () -> Unit): TextView =
-    TextView(this).apply {
+internal fun MainActivity.miniButton(label: String, color: Int, onClick: () -> Unit): TextView {
+    val act = this
+    return TextView(act).apply {
         text = label
         textSize = 12f
         typeface = android.graphics.Typeface.DEFAULT_BOLD
         setTextColor(color)
         setPadding(dp(10f), dp(5f), dp(10f), dp(5f))
-        background = Maniflow.rounded(this@MainActivity, Theme.current.cardBg, 8, borderColor = color, borderDp = 1f)
+        background = Maniflow.rounded(act, Theme.current.cardBg, 8, borderColor = color, borderDp = 1f)
         setOnClickListener { onClick() }
     }
+}
 
 internal class TaskListAdapter(private val act: MainActivity) : BaseAdapter() {
     override fun getCount() = act.tasks.size

@@ -164,6 +164,7 @@ fun MainActivity.doImport(o: org.json.JSONObject, mode: com.eventsh.app.engine.B
 }
 
 fun MainActivity.profileDialog(existing: Profile?) {
+    val act = this
     val t = Theme.current
     val contexts = (existing?.contexts?.toMutableList() ?: mutableListOf<Ctx>())
     if (contexts.none { it is EventCtx } && existing != null && existing.eventContext != null) {
@@ -183,7 +184,7 @@ fun MainActivity.profileDialog(existing: Profile?) {
     val taskTv = TextView(this).apply {
         textSize = 15f
         setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
-        background = Maniflow.rounded(this@MainActivity, t.cardBg, 10, borderColor = t.borderColor, borderDp = 1f)
+        background = Maniflow.rounded(act, t.cardBg, 10, borderColor = t.borderColor, borderDp = 1f)
         setOnClickListener {
             taskPickDialog(taskId) { tid ->
                 taskId = tid

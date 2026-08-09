@@ -1,7 +1,7 @@
 package com.eventsh.app
 
 import android.app.AlertDialog
-import android.content.ApplicationInfo
+import android.content.pm.ApplicationInfo
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity

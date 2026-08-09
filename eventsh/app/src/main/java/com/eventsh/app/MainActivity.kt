@@ -137,6 +137,10 @@ class MainActivity : Activity() {
     internal lateinit var aiKeyStatusTv: TextView
     internal lateinit var recentThemesBox: LinearLayout
 
+    // Extension UI code reads the AI settings views via this instead of
+    // ::isInitialized, which would need backing-field access from outside.
+    internal fun aiSettingsUiReady(): Boolean = ::aiKeyStatusTv.isInitialized && ::recentThemesBox.isInitialized
+
     private var renderedGeneration = -1
     private var pendingOpenTab = -1
     private var themeReceiverRegistered = false

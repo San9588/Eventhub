@@ -142,7 +142,7 @@ class ThemeStudioActivity : Activity() {
             isClickable = true
             isFocusable = true
             background = Maniflow.rounded(this@ThemeStudioActivity, t.accentPrimary, t.radiusCard)
-            elevation = Maniflow.dpf(this@ThemeStudioActivity, (t.shadowElevation / 2).toFloat())
+            elevation = Maniflow.dpf(this@ThemeStudioActivity, (t.shadowElevation / 2).toFloat()).toFloat()
             setOnClickListener { onGenerate() }
         }
         generateBtn.addView(generateLabel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
@@ -208,7 +208,7 @@ class ThemeStudioActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = Maniflow.rounded(this@ThemeStudioActivity, 0xFF101828.toInt(), 12)
-            elevation = Maniflow.dpf(this@ThemeStudioActivity, 6f)
+            elevation = Maniflow.dpf(this@ThemeStudioActivity, 6f).toFloat()
             setPadding(dp(16f), dp(12f), dp(10f), dp(12f))
         }
         bar.addView(
@@ -242,7 +242,7 @@ class ThemeStudioActivity : Activity() {
     private fun openSettings() {
         val i = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        i.putExtra("open_tab", MainActivity.TAB_SETTINGS)
+        i.putExtra("open_tab", 4)
         startActivity(i)
         finish()
     }

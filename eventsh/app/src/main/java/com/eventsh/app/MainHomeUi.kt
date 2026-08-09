@@ -122,7 +122,7 @@ private fun MainActivity.buildChatCard(): View {
         setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
         background = Maniflow.rounded(ctx, t.accentPrimary, 999)
         contentDescription = "Send"
-        setOnClickListener { startActivity(Intent(this@MainActivity, ThemeStudioActivity::class.java)) }
+        setOnClickListener { startActivity(Intent(ctx, ThemeStudioActivity::class.java)) }
     }, LinearLayout.LayoutParams(dp(38f), dp(38f)).apply {
         marginStart = dp(8f)
     })

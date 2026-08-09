@@ -51,8 +51,8 @@ object Maniflow {
         textSize = sizeSp
         setTextColor(color)
         val tf = when (Theme.current.fontFamily) {
-            "Serif" -> if (bold) Typeface.SERIF_BOLD else Typeface.SERIF
-            "Monospace" -> if (bold) Typeface.MONOSPACE_BOLD else Typeface.MONOSPACE
+            "Serif" -> if (bold) Typeface.create(Typeface.SERIF, Typeface.BOLD) else Typeface.SERIF
+            "Monospace" -> if (bold) Typeface.create(Typeface.MONOSPACE, Typeface.BOLD) else Typeface.MONOSPACE
             else -> if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         }
         typeface = tf
@@ -153,7 +153,7 @@ object Maniflow {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(c, t.spacingUnit), dp(c, t.spacingUnit), dp(c, t.spacingUnit), dp(c, t.spacingUnit))
             background = rounded(c, t.cardBg, t.radiusCard)
-            elevation = dpf(c, t.shadowElevation.toFloat())
+            elevation = dpf(c, t.shadowElevation.toFloat()).toFloat()
             addView(content)
         }
     }
@@ -177,7 +177,7 @@ object Maniflow {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                topMargin = dp(c, topMargin)
+                this.topMargin = dp(c, topMargin)
             }
         }
 
@@ -277,7 +277,7 @@ object Maniflow {
                 borderColor = if (primary) null else t.borderColor,
                 borderDp = 1f
             )
-            elevation = if (primary) dpf(c, (t.shadowElevation / 2).toFloat()) else 0f
+            elevation = if (primary) dpf(c, (t.shadowElevation / 2).toFloat()).toFloat() else 0f
             setOnClickListener { onClick() }
         }
     }
@@ -297,7 +297,7 @@ object Maniflow {
             gravity = Gravity.CENTER
             setPadding(dp(c, 8), dp(c, 12), dp(c, 8), dp(c, 12))
             background = rounded(c, t.cardBg, t.radiusCard)
-            elevation = dpf(c, (t.shadowElevation / 2).toFloat())
+            elevation = dpf(c, (t.shadowElevation / 2).toFloat()).toFloat()
             addView(ImageView(c).apply {
                 setImageResource(icon)
                 setColorFilter(tint)
@@ -338,13 +338,13 @@ class ManiflowToggle(
         val w = Maniflow.dp(c, 48)
         val h = Maniflow.dp(c, 28)
         trackView.layoutParams = FrameLayout.LayoutParams(w, h, Gravity.CENTER)
-        trackView.elevation = Maniflow.dpf(c, 1f)
+        trackView.elevation = Maniflow.dpf(c, 1f).toFloat()
         thumbView.layoutParams = FrameLayout.LayoutParams(
             Maniflow.dp(c, 22),
             Maniflow.dp(c, 22),
             Gravity.CENTER_VERTICAL
         )
-        thumbView.elevation = Maniflow.dpf(c, 2f)
+        thumbView.elevation = Maniflow.dpf(c, 2f).toFloat()
         addView(trackView)
         addView(thumbView)
         isClickable = true

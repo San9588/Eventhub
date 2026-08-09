@@ -239,6 +239,7 @@ private fun MainActivity.aboutCard(): View {
 // ============================================================================
 
 private fun MainActivity.aiSettingsCard(): View {
+    val act = this
     val t = Theme.current
     val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
@@ -249,7 +250,7 @@ private fun MainActivity.aiSettingsCard(): View {
         setHintTextColor(t.textMuted)
         setTextColor(t.textPrimary)
         textSize = 15f
-        background = Maniflow.rounded(this@MainActivity, t.surfaceBg, 10, borderColor = t.borderColor, borderDp = 1f)
+        background = Maniflow.rounded(act, t.surfaceBg, 10, borderColor = t.borderColor, borderDp = 1f)
         setPadding(dp(10f), dp(9f), dp(10f), dp(9f))
     }
     col.addView(aiKeyField)
@@ -275,15 +276,15 @@ private fun MainActivity.aiSettingsCard(): View {
     col.addView(Maniflow.listRow(
         this, R.drawable.ic_ai, t.accentPrimary, "Theme Studio",
         subtitle = "AI se apni theme banao",
-        onClick = { startActivity(Intent(this@MainActivity, ThemeStudioActivity::class.java)) },
+        onClick = { startActivity(Intent(act, ThemeStudioActivity::class.java)) },
         showDivider = false
     ))
 
     col.addView(
         Maniflow.button(this, "Default theme pe wapas jao", false) {
-            ThemeController.resetToDefault(this@MainActivity)
+            ThemeController.resetToDefault(act)
             rebuildUi()
-            Toast.makeText(this@MainActivity, "Default theme wapas aa gaya", Toast.LENGTH_SHORT).show()
+            Toast.makeText(act, "Default theme wapas aa gaya", Toast.LENGTH_SHORT).show()
         },
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12f)
@@ -306,7 +307,7 @@ private fun MainActivity.saveGeminiKey() {
 
 /** Re-populates the AI status line + the recent-themes list (called on refresh). */
 internal fun MainActivity.refreshAiSettings() {
-    if (!::aiKeyStatusTv.isInitialized || !::recentThemesBox.isInitialized) return
+    if (!aiSettingsUiReady()) return
     val t = Theme.current
     aiKeyStatusTv.text = if (ThemeStore.hasApiKey(this)) "API key saved" else "API key add nahi hui"
     recentThemesBox.removeAllViews()
@@ -325,6 +326,7 @@ internal fun MainActivity.refreshAiSettings() {
 }
 
 private fun MainActivity.recentThemeRow(entry: ThemeHistoryEntry, idx: Int): View {
+    val act = this
     val t = Theme.current
     val row = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -333,16 +335,16 @@ private fun MainActivity.recentThemeRow(entry: ThemeHistoryEntry, idx: Int): Vie
         isClickable = true
         isFocusable = true
         setOnClickListener {
-            ThemeController.apply(this@MainActivity, entry.tokens)
+            ThemeController.apply(act, entry.tokens)
             rebuildUi()
-            Toast.makeText(this@MainActivity, "Theme wapas lag gaya", Toast.LENGTH_SHORT).show()
+            Toast.makeText(act, "Theme wapas lag gaya", Toast.LENGTH_SHORT).show()
         }
     }
 
     val swatch = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
     listOf(entry.tokens.headerBg, entry.tokens.accentPrimary, entry.tokens.cardBg).forEach { c ->
         swatch.addView(
-            View(this).apply { background = Maniflow.rounded(this@MainActivity, c, 6) },
+            View(this).apply { background = Maniflow.rounded(act, c, 6) },
             LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { marginEnd = dp(6f) }
         )
     }

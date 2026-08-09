@@ -3,7 +3,7 @@ package com.eventsh.app.theme
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import androidx.security.crypto.MasterKeys
 import com.eventsh.app.ui.ThemeTokens
 import org.json.JSONArray
 import org.json.JSONObject
@@ -61,10 +61,11 @@ object ThemeStore {
     // Best-effort prefs handle: a keystore failure must never crash the app,
     // so every accessor treats a null handle as "empty / no-op".
     private fun prefs(ctx: Context): SharedPreferences? = try {
+        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
         EncryptedSharedPreferences.create(
             ctx,
             PREFS,
-            MasterKey.Builder(ctx).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+            masterKeyAlias,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
