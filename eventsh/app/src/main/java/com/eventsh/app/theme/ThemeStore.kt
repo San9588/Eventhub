@@ -63,9 +63,9 @@ object ThemeStore {
     private fun prefs(ctx: Context): SharedPreferences? = try {
         val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
         EncryptedSharedPreferences.create(
-            ctx,
             PREFS,
             masterKeyAlias,
+            ctx,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
