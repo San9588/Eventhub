@@ -75,7 +75,7 @@ fun MainActivity.exportRules() {
         val json = com.eventsh.app.engine.Backup.export(this)
         val pretty = json.toString(2)
         val outDir = getExternalFilesDir(null) ?: filesDir
-        val f = File(outDir, "eventsh_backup.json")
+        val f = File(outDir, "maniflow_backup.json")
         f.writeText(pretty)
         val np = Store.profiles(this).size
         val nt = Store.tasks(this).size
@@ -98,7 +98,7 @@ fun MainActivity.saveBackupAs(content: String) {
     val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
         addCategory(Intent.CATEGORY_OPENABLE)
         type = "application/json"
-        putExtra(Intent.EXTRA_TITLE, "eventsh_backup.json")
+        putExtra(Intent.EXTRA_TITLE, "maniflow_backup.json")
     }
     try {
         startActivityForResult(intent, REQ_CREATE_BACKUP)
@@ -109,7 +109,7 @@ fun MainActivity.saveBackupAs(content: String) {
 
 fun MainActivity.importRules() {
     val outDir = getExternalFilesDir(null) ?: filesDir
-    val f = File(outDir, "eventsh_backup.json")
+    val f = File(outDir, "maniflow_backup.json")
     if (f.exists()) {
         try {
             confirmImport(f.readText())
@@ -133,7 +133,7 @@ fun MainActivity.importRules() {
 fun MainActivity.confirmImport(raw: String) {
     val o = com.eventsh.app.engine.Backup.parse(raw)
     if (o == null) {
-        EventLog.push("[bak] import FAILED: not an eventsh backup file")
+        EventLog.push("[bak] import FAILED: not a Maniflow backup file")
         refreshScreen()
         return
     }
