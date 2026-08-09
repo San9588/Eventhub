@@ -153,10 +153,10 @@ class MainActivity : Activity() {
         }
     }
 
-    private lateinit var flowAdapter: FlowListAdapter
     private lateinit var taskAdapter: TaskListAdapter
     private lateinit var varAdapter: VarListAdapter
     private lateinit var logAdapter: LogListAdapter
+    internal lateinit var flowAdapter: FlowListAdapter
 
     data class VarEntry(val name: String, val value: String, val disk: Boolean)
 

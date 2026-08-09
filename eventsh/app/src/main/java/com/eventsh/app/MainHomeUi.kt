@@ -32,7 +32,8 @@ fun MainActivity.buildHome(): View {
         setPadding(0, 0, 0, dp(96f))
     }
     homeList.addHeaderView(buildHomeHero(), null, false)
-    homeList.adapter = FlowListAdapter(this)
+    flowAdapter = FlowListAdapter(this)
+    homeList.adapter = flowAdapter
     homeList.setOnItemClickListener { _, _, pos, _ ->
         val item = homeList.getItemAtPosition(pos)
         if (item is Profile) toggleExpand(item.id)
