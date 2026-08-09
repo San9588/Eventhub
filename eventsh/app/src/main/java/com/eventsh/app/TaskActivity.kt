@@ -75,7 +75,7 @@ class TaskActivity : Activity() {
             runBtn,
             FrameLayout.LayoutParams(dp(56f), dp(56f), Gravity.BOTTOM or Gravity.END).apply {
                 marginEnd = dp(16f)
-                marginBottom = dp(84f)
+                bottomMargin = dp(84f)
             }
         )
         setContentView(frame)
