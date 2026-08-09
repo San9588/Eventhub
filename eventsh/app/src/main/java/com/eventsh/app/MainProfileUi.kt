@@ -278,7 +278,7 @@ fun MainActivity.profileDialog(existing: Profile?) {
     if (existing != null) {
         d.setNeutralButton("DELETE") { _, _ -> deleteProfile(existing) }
     }
-    d.show()
+    com.eventsh.app.ui.Maniflow.showDialog(d)
 }
 
 fun MainActivity.taskNameOr(tid: String): String =

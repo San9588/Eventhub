@@ -313,8 +313,9 @@ class MainActivity : Activity() {
         val t = Theme.current
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(t.surfaceBg)
-            elevation = dp(6f).toFloat()
+            background = Maniflow.rounded(this@MainActivity, t.surfaceBg, t.radiusHeader,
+                radii = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, dp(t.radiusHeader.toFloat()).toFloat(), dp(t.radiusHeader.toFloat()).toFloat()))
+            elevation = dp(2f).toFloat()
         }
         wrap.addView(Maniflow.divider(this))
         val bar = LinearLayout(this).apply {
@@ -324,8 +325,9 @@ class MainActivity : Activity() {
         val indicators = ArrayList<View>()
         for ((i, name) in TAB_NAMES.withIndex()) {
             val ind = View(this).apply { setBackgroundColor(t.accentPrimary) }
-            val tv = Maniflow.text(this, name, 13f, t.textMuted, bold = true).apply {
+            val tv = Maniflow.text(this, name, 14f, if (i == currentTab) t.accentPrimary else t.textMuted, bold = true).apply {
                 gravity = Gravity.CENTER
+                tag = "tab.label.$i"
             }
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -344,7 +346,10 @@ class MainActivity : Activity() {
     internal fun selectTab(i: Int) {
         currentTab = i
         for (j in TAB_NAMES.indices) {
-            tabIndicators[j].alpha = if (j == i) 1f else 0.15f
+            tabIndicators[j].alpha = if (j == i) 1f else 0f
+            (contentFrame.rootView.findViewWithTag<TextView>("tab.label.$j"))?.setTextColor(
+                if (j == i) Theme.current.accentPrimary else Theme.current.textMuted
+            )
         }
         homeRoot.visibility = if (i == TAB_HOME) View.VISIBLE else View.GONE
         taskRoot.visibility = if (i == TAB_TASKS) View.VISIBLE else View.GONE

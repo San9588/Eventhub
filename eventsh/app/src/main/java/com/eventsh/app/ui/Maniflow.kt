@@ -1,6 +1,8 @@
 package com.eventsh.app.ui
 
 import android.animation.ValueAnimator
+import android.app.AlertDialog
+import android.graphics.Color
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -84,7 +86,7 @@ object Maniflow {
                 c, t.headerBg, 0,
                 radii = floatArrayOf(0f, 0f, 0f, 0f, bottom * 0.55f, bottom * 0.55f, bottom, bottom)
             )
-            setPadding(dp(c, t.spacingUnit), dp(c, 14), dp(c, t.spacingUnit), dp(c, 20))
+            setPadding(dp(c, t.spacingUnit + 8), dp(c, 30), dp(c, t.spacingUnit + 8), dp(c, 28))
         }
 
         val titleRow = LinearLayout(c).apply {
@@ -102,7 +104,7 @@ object Maniflow {
             titleRow.addView(back, LinearLayout.LayoutParams(dp(c, 36), dp(c, 36)))
         }
         titleRow.addView(
-            text(c, title, 22f, t.headerText, bold = true).apply {
+            text(c, title, 34f, t.headerText, bold = true).apply {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             },
@@ -170,10 +172,33 @@ object Maniflow {
         return LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(c, t.spacingUnit), dp(c, t.spacingUnit), dp(c, t.spacingUnit), dp(c, t.spacingUnit))
-            background = rounded(c, t.cardBg, t.radiusCard)
+            background = rounded(c, t.cardBg, t.radiusCard, borderColor = t.borderColor)
             elevation = dpf(c, t.shadowElevation.toFloat()).toFloat()
             addView(content)
         }
+    }
+
+    /**
+     * Gives editor, profile and action dialogs the active token set. Call this
+     * after create/show; it deliberately touches presentation only, never
+     * dialog listeners or submitted values.
+     */
+    fun showDialog(dialog: AlertDialog) {
+        dialog.show()
+        val t = Theme.current
+        dialog.window?.setBackgroundDrawable(rounded(dialog.context, t.cardBg, t.radiusCard, t.borderColor))
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(t.accentPrimary)
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(t.textMuted)
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(t.danger)
+        fun tint(view: View) {
+            when (view) {
+                is TextView -> if (view !is android.widget.EditText) view.setTextColor(
+                    if (view.currentTextColor == Color.BLACK) t.textPrimary else view.currentTextColor
+                )
+                is ViewGroup -> for (i in 0 until view.childCount) tint(view.getChildAt(i))
+            }
+        }
+        dialog.window?.decorView?.let(::tint)
     }
 
     /** Custom switch: green ON track / gray outlined OFF track. */
@@ -212,7 +237,7 @@ object Maniflow {
         }
         return text(c, label, 11f, color, bold = true).apply {
             setPadding(dp(c, 9), dp(c, 4), dp(c, 9), dp(c, 4))
-            background = rounded(c, color.withAlpha(30), 999)
+            background = rounded(c, color.withAlpha(38), 999)
         }
     }
 
@@ -227,7 +252,7 @@ object Maniflow {
         }
         pill.text = label
         pill.setTextColor(color)
-        pill.background = rounded(c, color.withAlpha(30), 999)
+        pill.background = rounded(c, color.withAlpha(38), 999)
     }
 
     /**
@@ -269,7 +294,7 @@ object Maniflow {
         val row = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(c, 2), dp(c, 10), dp(c, 2), dp(c, 10))
+            setPadding(dp(c, 6), dp(c, 12), dp(c, 6), dp(c, 12))
             if (onClick != null) {
                 isClickable = true
                 isFocusable = true
@@ -317,12 +342,12 @@ object Maniflow {
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(if (primary) 0xFFFFFFFF.toInt() else t.textPrimary)
+            setTextColor(if (primary) t.headerText else t.textPrimary)
             setPadding(dp(c, 14), dp(c, 10), dp(c, 14), dp(c, 10))
             background = rounded(
                 c,
                 if (primary) t.accentPrimary else t.surfaceBg,
-                t.radiusCard,
+                t.radiusToggle,
                 borderColor = if (primary) null else t.borderColor,
                 borderDp = 1f
             )
@@ -345,7 +370,7 @@ object Maniflow {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(c, 8), dp(c, 12), dp(c, 8), dp(c, 12))
-            background = rounded(c, t.cardBg, t.radiusCard)
+            background = rounded(c, t.cardBg, t.radiusCard, borderColor = t.borderColor)
             elevation = dpf(c, (t.shadowElevation / 2).toFloat()).toFloat()
             addView(ImageView(c).apply {
                 setImageResource(icon)
@@ -435,7 +460,7 @@ class ManiflowToggle(
         )
         thumbView.background = Maniflow.rounded(
             context,
-            if (checked) 0xFFFFFFFF.toInt() else 0xFF98A2B3.toInt(),
+            if (checked) t.headerText else t.disabled,
             999
         )
     }

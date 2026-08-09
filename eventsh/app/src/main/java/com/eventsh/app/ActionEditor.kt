@@ -373,7 +373,7 @@ object ActionEditor {
             }
             .setNegativeButton("CANCEL", null)
         if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-        d.show()
+        com.eventsh.app.ui.Maniflow.showDialog(d)
     }
 
     fun actionDialog(
@@ -512,6 +512,6 @@ object ActionEditor {
             }
             .setNegativeButton("CANCEL", null)
         if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-        d.show()
+        com.eventsh.app.ui.Maniflow.showDialog(d)
     }
 }

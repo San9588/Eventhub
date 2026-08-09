@@ -152,7 +152,7 @@ fun MainActivity.eventCtxDialog(existing: EventCtx?, onSave: (EventCtx) -> Unit,
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    d.show()
+    com.eventsh.app.ui.Maniflow.showDialog(d)
 }
 
 fun MainActivity.timeCtxDialog(existing: TimeCtx?, onSave: (TimeCtx) -> Unit, onRemove: (() -> Unit)?) {
@@ -242,7 +242,7 @@ fun MainActivity.timeCtxDialog(existing: TimeCtx?, onSave: (TimeCtx) -> Unit, on
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    d.show()
+    com.eventsh.app.ui.Maniflow.showDialog(d)
 }
 
 fun MainActivity.hm(hhmm: String): Pair<Int, Int> {
@@ -295,7 +295,7 @@ fun MainActivity.dayCtxDialog(existing: DayCtx?, onSave: (DayCtx) -> Unit, onRem
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    d.show()
+    com.eventsh.app.ui.Maniflow.showDialog(d)
 }
 
 fun MainActivity.varCtxDialog(existing: VarCtx?, onSave: (VarCtx) -> Unit, onRemove: (() -> Unit)?) {
@@ -332,7 +332,7 @@ fun MainActivity.varCtxDialog(existing: VarCtx?, onSave: (VarCtx) -> Unit, onRem
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    d.show()
+    com.eventsh.app.ui.Maniflow.showDialog(d)
 }
 
 fun MainActivity.appCtxDialog(existing: AppCtx?, onSave: (AppCtx) -> Unit, onRemove: (() -> Unit)?) {
@@ -371,7 +371,7 @@ fun MainActivity.appCtxDialog(existing: AppCtx?, onSave: (AppCtx) -> Unit, onRem
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    d.show()
+    com.eventsh.app.ui.Maniflow.showDialog(d)
 }
 
 fun MainActivity.locationCtxDialog(existing: LocationCtx?, onSave: (LocationCtx) -> Unit, onRemove: (() -> Unit)?) {
@@ -431,7 +431,7 @@ fun MainActivity.locationCtxDialog(existing: LocationCtx?, onSave: (LocationCtx)
         }
         .setNegativeButton("CANCEL", null)
     if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-    d.show()
+    com.eventsh.app.ui.Maniflow.showDialog(d)
 }
 
 /** Last cached fix from any provider, without requesting a fresh one. */
