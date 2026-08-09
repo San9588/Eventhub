@@ -6,16 +6,16 @@ import org.json.JSONObject
 import java.util.Calendar
 
 /**
- * Tasker-style composable profile contexts.
+ * Composable profile contexts.
  *
  * A rule/profile is a set of contexts. All contexts must be satisfied for
- * the rule to fire (AND semantics), matching Tasker's profile model:
+ * the rule to fire (AND semantics), matching the profile model:
  *  - EventCtx  : instantaneous trigger (broadcast / watcher event)
  *  - TimeCtx   : time point / range / repeat (From / To / Repeat)
  *  - DayCtx    : days of week and/or days of month
  *  - VarCtx    : user variable value condition (Variable Value state)
  *  - AppCtx    : app / foreground restriction (Application context)
- *  - LocationCtx : geo-fence (inside a circle) state, Tasker "Location" context
+ *  - LocationCtx : geo-fence (inside a circle) state context
  */
 sealed class Ctx {
     abstract val type: String
@@ -120,7 +120,7 @@ data class EventCtx(
     }
 }
 
-/** Time context. Blank fields mean "unset" (Tasker: 00:00 / 23:59 defaults). */
+/** Time context. Blank fields mean "unset" (00:00 / 23:59 defaults). */
 data class TimeCtx(
     val from: String = "",
     val to: String = "",
@@ -322,7 +322,7 @@ object ContextGate {
         return 2 * r * Math.asin(Math.sqrt(a.coerceIn(0.0, 1.0)))
     }
 
-    /** Tasker-style simple matching: `*` any, `+` at least one, `/` OR, `!` NOT. */
+    /** Simple pattern matching: `*` any, `+` at least one, `/` OR, `!` NOT. */
     fun matchPattern(pattern: String, target: String): Boolean {
         if (pattern.isBlank()) return true
         val negate = pattern.startsWith("!")

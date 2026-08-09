@@ -48,11 +48,6 @@ internal val dispatcherStopFlags = ConcurrentHashMap<String, AtomicBoolean>()
  */
 object Dispatcher {
     const val TAG = "EVENTSH"
-    const val ACTION_TASKER_REQ = "net.dinglisch.android.tasker.REQBROADCAST"
-    const val EXTRA_TASKER_INTENT = "net.dinglisch.android.tasker.extras.INTENT"
-    const val EXTRA_TASKER_MSG = "net.dinglisch.android.tasker.extras.MSG"
-    const val EXTRA_TASKER_BUNDLE = "net.dinglisch.android.tasker.extras.BUNDLE"
-
     const val ACTION_OWN = "com.eventsh.TRIGGER"
     const val CHANNEL_EVENT = "events"
 

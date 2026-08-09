@@ -11,7 +11,7 @@ import android.os.Process
 import android.provider.Settings
 
 /**
- * Maps rules/events to the Android permissions they need, Tasker-style.
+ * Maps rules/events to the Android permissions they need.
  * A rule that needs an ungranted permission should prompt the user to set
  * it up (special-access settings screen or a runtime permission dialog).
  */

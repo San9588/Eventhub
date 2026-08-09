@@ -3,7 +3,7 @@ package com.eventsh.app.engine
 import org.json.JSONObject
 
 /**
- * A single step inside a Task, Tasker "Action" style.
+ * A single step inside a Task.
  * [value] and [extra]/[extra2] are task-specific per [type].
  */
 data class Action(
@@ -268,14 +268,14 @@ object Actions {
     data class Def(val type: String, val label: String, val category: String)
 
     val CATALOG: List<Def> = listOf(
-        Def(SCRIPT, "Termux Script", "TASKER"),
-        Def(SHELL, "Shell Command", "TASKER"),
-        Def(INTENT, "Send Broadcast", "TASKER"),
-        Def(NOTIFY, "Notify", "TASKER"),
-        Def(ROOT, "Root Command", "TASKER"),
-        Def(FLASH, "Flash", "TASKER"),
-        Def(SPEAK, "Speak", "TASKER"),
-        Def(HTTP, "HTTP Request", "TASKER"),
+        Def(SCRIPT, "Termux Script", "EVENTSH"),
+        Def(SHELL, "Shell Command", "EVENTSH"),
+        Def(INTENT, "Send Broadcast", "EVENTSH"),
+        Def(NOTIFY, "Notify", "EVENTSH"),
+        Def(ROOT, "Root Command", "EVENTSH"),
+        Def(FLASH, "Flash", "EVENTSH"),
+        Def(SPEAK, "Speak", "EVENTSH"),
+        Def(HTTP, "HTTP Request", "EVENTSH"),
         Def(VAR_SET, "Variable Set", "VARIABLE"),
         Def(VAR_SPLIT, "Variable Split", "VARIABLE"),
         Def(VAR_JOIN, "Variable Join", "VARIABLE"),

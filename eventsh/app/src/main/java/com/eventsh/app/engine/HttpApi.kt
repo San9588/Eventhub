@@ -8,7 +8,7 @@ import java.net.URL
 import java.net.URLEncoder
 
 /**
- * HTTP / webhook action engine (Tasker "HTTP Request" style).
+ * HTTP / webhook action engine.
  *
  * - URL, method, headers, query params, body and the result-variable name all
  *   support %VAR% substitution ([Vars.resolve]).

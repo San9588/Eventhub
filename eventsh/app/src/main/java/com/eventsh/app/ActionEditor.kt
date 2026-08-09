@@ -583,7 +583,7 @@ object ActionEditor {
         d.show()
     }
 
-    /** Custom editor for the HTTP Request action (Tasker "HTTP Request" style). */
+    /** Custom editor for the HTTP Request action. */
     private fun httpDialog(
         a: Activity,
         existing: Action,

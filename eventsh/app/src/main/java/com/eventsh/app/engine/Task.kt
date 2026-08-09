@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * A named, reusable set of [Action]s (Tasker "Task").
+ * A named, reusable set of [Action]s.
  * Profiles link to a Task via [Profile.taskId]; a Task can be shared by
  * many profiles and edited independently in the task editor.
  */

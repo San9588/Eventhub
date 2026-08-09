@@ -14,7 +14,7 @@ import android.util.Log
  * System-alarm bridge for the Set Alarm / Cancel Alarm actions.
  *
  * No in-app alarm clock exists: an alarm is always handed to the system clock
- * app, exactly like Tasker does without root -
+ * app without root -
  *  - normal mode: [setAlarmSystem] fires the public
  *    [android.provider.AlarmClock.ACTION_SET_ALARM] intent with SKIP_UI, so the
  *    clock app sets the alarm silently (no UI) and rings it reliably, free of
@@ -36,7 +36,7 @@ object AlarmEngine {
     const val CHANNEL_ALARM_PERM = "alarm_perm"
 
     /**
-     * Sets a real system alarm WITHOUT root, exactly how Tasker does it:
+     * Sets a real system alarm WITHOUT root:
      * fires the standard [android.provider.AlarmClock.ACTION_SET_ALARM] intent
      * (with SKIP_UI, the clock app sets it silently) and lets the system clock
      * ring it reliably - no Doze immunity or OEM restrictions needed.

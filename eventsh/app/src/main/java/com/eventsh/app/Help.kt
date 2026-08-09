@@ -90,9 +90,9 @@ object Help {
             "A task running Perform Task nests up to 32 levels deep."
         )),
 
-        Section("TASKER ACTIONS", listOf(
+        Section("TERMUX & TOOLS", listOf(
             "TERMUX SCRIPT (script)",
-            "  value: Termux task name. Runs ~/.termux/tasker/<name>.sh via Termux's",
+            "  value: Termux task name. Runs ~/.termux/eventsh/<name>.sh via Termux's",
             "  RUN_COMMAND service; current variables are passed as %VAR=value args.",
             "  Needs 'Allow external apps' enabled in Termux settings.",
             "SHELL COMMAND (shell)",

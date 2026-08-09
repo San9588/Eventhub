@@ -1,7 +1,7 @@
 package com.eventsh.app.engine
 
 /**
- * Tiny Tasker-style arithmetic evaluator used by Variable Set.
+ * Tiny arithmetic evaluator used by Variable Set.
  * After %VAR% references are resolved, the resulting string is evaluated as
  * math when it is a pure numeric expression. Supports:
  *   + - * / %  ^  parentheses  unary minus  decimal numbers

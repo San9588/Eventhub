@@ -120,7 +120,7 @@ object EventHub {
     }
 
     private fun passesFilter(p: Profile, event: String, data: Map<String, String>): Boolean {
-        // Tasker-style per-parameter filters, each matched against its own data key
+        // per-parameter filters, each matched against its own data key
         val ev = p.contexts.filterIsInstance<EventCtx>().firstOrNull { it.action == event }
         ev?.params?.forEach { (key, pat) ->
             val v = data[key]

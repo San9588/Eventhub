@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Persistence for Profiles and Tasks (Tasker model: profiles = contexts,
+ * Persistence for Profiles and Tasks (profiles = contexts,
  * tasks = actions). Both are cached in memory so background hot paths
  * (watchers, receivers) never touch disk. A one-time migration converts
  * legacy "rules" (merged profile+actions) into the split model.

@@ -191,7 +191,7 @@ fun MainActivity.profileDialog(existing: Profile?) {
         }
         taskTv.text = taskNameOr(taskId)
 
-        // ---- contexts editor (Tasker-style: Event / Time / Day / Variable / App) ----
+        // ---- contexts editor (Event / Time / Day / Variable / App) ----
         val ctxBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun refreshCtx() {
             ctxBox.removeAllViews()

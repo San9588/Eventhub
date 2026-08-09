@@ -12,7 +12,7 @@ import android.view.WindowManager
 import android.widget.TextView
 
 /**
- * Tasker-style "Flash" action: flashes a short, non-blocking message on screen.
+ * "Flash" action: flashes a short, non-blocking message on screen.
  *
  * A plain Android Toast is blocked for background apps since Android 12, so a
  * flash is shown as a floating overlay whenever the app has the "Display over

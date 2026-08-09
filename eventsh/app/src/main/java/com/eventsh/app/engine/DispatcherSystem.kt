@@ -2,7 +2,6 @@ package com.eventsh.app.engine
 
 import android.content.Context
 import android.content.Intent
-import android.os.Bundle
 import android.util.Log
 
 /**
@@ -39,7 +38,7 @@ internal fun retry(
 }
 
 /**
- * Runs a shell command in eventsh's own process (Tasker "Run Shell" style).
+ * Runs a shell command in eventsh's own process.
  * Uses the device's /system/bin/sh. stdout / stderr / exit code are stored
  * in %STDOUT / %STDERR / %EXIT (RAM vars) and added to the current task's
  * variable map so later actions can reference them.
@@ -97,22 +96,20 @@ private fun readLimited(s: java.io.InputStream): String {
 }
 
 /**
- * Runs a Termux script named [taskName] (i.e. ~/.termux/tasker/<name>.sh).
- * PRIMARY: Termux's official com.termux.RUN_COMMAND service (no third-party
- * plugin, args travel via intent = no disk writes). FALLBACK: the
- * Termux:Tasker plugin broadcast. RUN_COMMAND needs "Allow external apps"
- * enabled in Termux settings.
+ * Runs a Termux script named [taskName] (i.e. ~/.termux/eventsh/<name>.sh)
+ * via Termux's official com.termux.RUN_COMMAND service (args travel via
+ * intent = no disk writes). RUN_COMMAND needs "Allow external apps" enabled
+ * in Termux settings.
  */
 internal fun termuxTask(
-    ctx: Context, taskName: String, vars: Map<String, String>, event: String, summary: String
+    ctx: Context, taskName: String, vars: Map<String, String>
 ): Boolean {
-    // 1) Termux RUN_COMMAND (official API, no plugin needed)
     try {
         ctx.packageManager.getPackageInfo("com.termux", 0)
         val home = "/data/data/com.termux/files/home"
         val i = Intent("com.termux.RUN_COMMAND").apply {
             setClassName("com.termux", "com.termux.app.RunCommandService")
-            putExtra("com.termux.RUN_COMMAND_PATH", "$home/.termux/tasker/$taskName.sh")
+            putExtra("com.termux.RUN_COMMAND_PATH", "$home/.termux/eventsh/$taskName.sh")
             putExtra(
                 "com.termux.RUN_COMMAND_ARGUMENTS",
                 vars.map { "%${it.key}=${it.value}" }.toTypedArray()
@@ -121,31 +118,18 @@ internal fun termuxTask(
             putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
         }
         ctx.startService(i)
-        return true
+        true
     } catch (e: SecurityException) {
         EventLog.push("[$taskName] RUN_COMMAND denied: Termux 'Allow external apps' OFF or not confirmed")
         Log.w(Dispatcher.TAG, "termux RUN_COMMAND permission denied", e)
+        false
     } catch (e: ClassNotFoundException) {
         EventLog.push("[$taskName] RUN_COMMAND service missing: update Termux (0.117+)")
         Log.w(Dispatcher.TAG, "termux RUN_COMMAND service not found", e)
+        false
     } catch (e: Exception) {
         EventLog.push("[$taskName] RUN_COMMAND failed: ${e.message?.take(100) ?: "unknown"}")
         Log.w(Dispatcher.TAG, "termux RUN_COMMAND failed", e)
-    }
-    // 2) Termux:Tasker plugin fallback
-    return try {
-        ctx.packageManager.getPackageInfo("com.termux.tasker", 0)
-        val b = Bundle().apply { vars.forEach { (k, v) -> putString(k, v) } }
-        val i = Intent(Dispatcher.ACTION_TASKER_REQ).apply {
-            setPackage("com.termux.tasker")
-            putExtra(Dispatcher.EXTRA_TASKER_INTENT, taskName)
-            putExtra(Dispatcher.EXTRA_TASKER_MSG, "$event:$summary")
-            putExtra(Dispatcher.EXTRA_TASKER_BUNDLE, b)
-        }
-        ctx.sendBroadcast(i)
-        true
-    } catch (e: Exception) {
-        Log.w(Dispatcher.TAG, "tasker plugin not available", e)
         false
     }
 }
@@ -224,7 +208,7 @@ internal fun parseExtras(spec: String): List<Pair<String, String>> {
     return out
 }
 
-/** Tasker-style typed extras: true/false -> boolean, L -> long, D -> double, else int/double/string. */
+/** Typed extras: true/false -> boolean, L -> long, D -> double, else int/double/string. */
 internal fun putExtraTyped(i: Intent, key: String, value: String) {
     val v = value.trim()
     when {

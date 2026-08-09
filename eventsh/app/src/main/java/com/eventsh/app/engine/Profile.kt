@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * A profile is a SET of contexts that link to a Task (Tasker "Profile").
+ * A profile is a SET of contexts that link to a Task.
  * When every context is satisfied the linked Task runs. Profiles carry no
  * actions themselves - those live in the linked Task.
  */
@@ -22,7 +22,7 @@ data class Profile(
     val isOneShotTimer: Boolean get() = atEpoch > 0
     val isDailyTimer: Boolean get() = daily.isNotBlank()
 
-    // Convenience accessors for the Tasker-style context blocks.
+    // Convenience accessors for the context blocks.
     val eventContext: EventCtx? get() = contexts.filterIsInstance<EventCtx>().firstOrNull()
     val timeCtx: TimeCtx? get() = contexts.filterIsInstance<TimeCtx>().firstOrNull()
     val dayCtx: DayCtx? get() = contexts.filterIsInstance<DayCtx>().firstOrNull()

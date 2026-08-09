@@ -35,7 +35,7 @@ internal fun execute(
 
             Actions.SCRIPT -> if (a.value.isNotBlank()) {
                 val taskName = Vars.resolve(a.value, vars)
-                retry(attempts, "tasker", profile.name) { termuxTask(ctx, taskName, vars, event, summary) }
+                retry(attempts, "termux", profile.name) { termuxTask(ctx, taskName, vars) }
             } else true
 
             Actions.INTENT -> if (a.value.isNotBlank()) {

@@ -48,7 +48,7 @@ object EventCatalog {
     )
 
     /**
-     * Filterable per-event parameters, Tasker-style Event Edit.
+     * Filterable per-event parameters.
      * key -> label shown in the event dialog. Values are pattern matches.
      * "value" on ram_pct/disk_free is numeric (min % / max MB).
      */

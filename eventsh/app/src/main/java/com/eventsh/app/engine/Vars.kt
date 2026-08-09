@@ -36,7 +36,7 @@ object Vars {
     /**
      * Resolves %NAME% (and bare %NAME when followed by a non-word char) from
      * the variable map, longest names first so %FOO doesn't collide with %FOOBAR.
-     * Tasker-style array selectors are handled first:
+     * EventHub-style array selectors are handled first:
      *   %name(#)  -> element count
      *   %name(-n) -> nth element from the end (-1 = last)
      */
