@@ -32,14 +32,14 @@ class EventService : Service() {
         if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(
                 NotificationChannel(
-                    "fgs", "EVENTSH service",
+                    "fgs", "Maniflow service",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply { description = "keeps event listener alive" }
             )
         }
         val n = Notification.Builder(this, "fgs")
             .setSmallIcon(android.R.drawable.ic_menu_more)
-            .setContentTitle("EVENTSH")
+            .setContentTitle("Maniflow")
             .setContentText("listening for events")
             .setOngoing(true)
             .build()

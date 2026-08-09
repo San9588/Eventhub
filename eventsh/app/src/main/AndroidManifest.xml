@@ -87,7 +87,7 @@
             android:name=".service.NotificationBridge"
             android:exported="false"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:label="EVENTSH notification bridge">
+            android:label="Maniflow notification bridge">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>

@@ -62,7 +62,7 @@ internal fun execute(
                     val text = Vars.resolve(a.value, vars).ifBlank { summary }
                     val n = android.app.Notification.Builder(ctx, Dispatcher.CHANNEL_EVENT)
                         .setSmallIcon(android.R.drawable.ic_menu_more)
-                        .setContentTitle("EVENTSH: ${profile.name}")
+                        .setContentTitle("Maniflow: ${profile.name}")
                         .setContentText(text)
                         .setAutoCancel(true)
                         .setWhen(System.currentTimeMillis())

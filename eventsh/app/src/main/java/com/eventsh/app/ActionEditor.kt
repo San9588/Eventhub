@@ -2,7 +2,6 @@ package com.eventsh.app
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.TimePickerDialog
 import android.content.Intent
 import android.text.Editable
 import android.text.TextWatcher
@@ -21,37 +20,38 @@ import com.eventsh.app.engine.CondTerm
 import com.eventsh.app.engine.EventLog
 import com.eventsh.app.engine.Store
 import com.eventsh.app.engine.UserVars
-import com.eventsh.app.ui.C
-import com.eventsh.app.ui.UI
+import com.eventsh.app.ui.Maniflow
+import com.eventsh.app.ui.Theme
 
 /**
  * Shared programmatic UI for editing Task actions. Used by both MainActivity
  * and TaskActivity so a task's action list behaves identically everywhere.
+ * The Set Alarm and HTTP dialogs live in ActionEditorDialogs.kt.
  */
 object ActionEditor {
 
     fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
     }
 
-    fun dp(a: Activity, v: Float): Int = UI.dp(a, v)
+    fun dp(a: Activity, v: Float): Int = Maniflow.dpf(a, v)
 
     fun editText(a: Activity, hint: String): EditText = EditText(a).apply {
         this.hint = hint
-        setHintTextColor(C.hint)
-        setTextColor(C.text)
+        setHintTextColor(Theme.current.textMuted)
+        setTextColor(Theme.current.textPrimary)
         textSize = 16f
-        background = UI.rounded(C.surface, 10f, C.border, 1f)
+        background = Maniflow.rounded(a, Theme.current.cardBg, 10, Theme.current.borderColor, 1f)
         setPadding(dp(a, 10f), dp(a, 9f), dp(a, 10f), dp(a, 9f))
     }
 
     fun checkBox(a: Activity, text: String): CheckBox = CheckBox(a).apply {
         this.text = text
-        setTextColor(C.text)
+        setTextColor(Theme.current.textPrimary)
         textSize = 15f
     }
 
     fun sectionLabel(a: Activity, text: String): TextView =
-        UI.text(a, text.uppercase(java.util.Locale.US), 12f, C.accent, bold = true).apply {
+        Maniflow.text(a, text.uppercase(java.util.Locale.US), 12f, Theme.current.accentPrimary, bold = true).apply {
             letterSpacing = 0.1f
             setPadding(dp(a, 4f), dp(a, 14f), dp(a, 4f), dp(a, 6f))
         }
@@ -62,7 +62,7 @@ object ActionEditor {
             textSize = 15f
             setTextColor(color)
             setPadding(dp(a, 10f), dp(a, 10f), dp(a, 10f), dp(a, 10f))
-            background = UI.rounded(C.card, 10f, C.border, 1f)
+            background = Maniflow.rounded(a, Theme.current.cardBg, 10, Theme.current.borderColor, 1f)
             setOnClickListener { onClick() }
         }
 
@@ -99,10 +99,11 @@ object ActionEditor {
     }
 
     fun actionTypePick(a: Activity, onPick: (String) -> Unit) {
+        val t = Theme.current
         val defs = Actions.CATALOG
         val search = editText(a, "search actions... (e.g. var, wifi, for)").apply {
-            setTextColor(C.text)
-            setHintTextColor(C.hint)
+            setTextColor(t.textPrimary)
+            setHintTextColor(t.textMuted)
         }
         val lv = ListView(a).apply {
             divider = null
@@ -119,10 +120,10 @@ object ActionEditor {
                 val row = LinearLayout(a).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(a, 14f), dp(a, 8f), dp(a, 14f), dp(a, 8f))
-                    setBackgroundColor(C.bg)
+                    setBackgroundColor(t.surfaceBg)
                 }
-                row.addView(UI.text(a, d.label, 15f, C.text))
-                row.addView(UI.text(a, d.category, 11f, C.hint))
+                row.addView(Maniflow.text(a, d.label, 15f, t.textPrimary))
+                row.addView(Maniflow.text(a, d.category, 11f, t.textMuted))
                 return row
             }
         }
@@ -169,6 +170,7 @@ object ActionEditor {
      * state and pushes the encoded condition to [onChange] on every edit.
      */
     fun condBuilder(a: Activity, initial: String, onChange: (String) -> Unit): View {
+        val t = Theme.current
         var terms: MutableList<CondTerm> = mutableListOf()
         var joins: MutableList<String> = mutableListOf()
         CondSpec.parse(initial)?.let { (t, j) ->
@@ -183,7 +185,7 @@ object ActionEditor {
             box.removeAllViews()
             if (terms.isEmpty()) {
                 box.addView(
-                    UI.text(a, "(no condition - action always runs)", 13f, C.hint).apply {
+                    Maniflow.text(a, "(no condition - action always runs)", 13f, t.textMuted).apply {
                         setPadding(dp(a, 4f), dp(a, 6f), dp(a, 4f), dp(a, 6f))
                     }
                 )
@@ -195,7 +197,7 @@ object ActionEditor {
                             TextView(a).apply {
                                 text = "  ${joins.getOrNull(idx)?.uppercase() ?: "AND"}  "
                                 textSize = 12f
-                                setTextColor(C.warning)
+                                setTextColor(Theme.current.flowTintOrange)
                                 setPadding(dp(a, 2f), dp(a, 4f), dp(a, 2f), dp(a, 4f))
                                 setOnClickListener {
                                     connectorPick(a) { op ->
@@ -208,7 +210,7 @@ object ActionEditor {
                         )
                     }
                     val tIdx = i
-                    box.addView(ctxRow(a, CondSpec.summary(listOf(t), emptyList()), C.text) {
+                    box.addView(ctxRow(a, CondSpec.summary(listOf(t), emptyList()), Theme.current.textPrimary) {
                         condTermDialog(
                             a, t,
                             onSave = { nt ->
@@ -228,7 +230,7 @@ object ActionEditor {
                     })
                 }
             }
-            box.addView(ctxRow(a, "+ ADD CONDITION", C.accent) {
+            box.addView(ctxRow(a, "+ ADD CONDITION", Theme.current.accentPrimary) {
                 val addTerm = { t: CondTerm ->
                     terms.add(t)
                     emit()
@@ -322,6 +324,7 @@ object ActionEditor {
         onSave: (CondTerm) -> Unit,
         onRemove: (() -> Unit)?
     ) {
+        val t = Theme.current
         var op = existing.op
         val varEt = editText(a, "variable (san  or  %san)").apply {
             setText(existing.variable.removePrefix("%"))
@@ -331,10 +334,10 @@ object ActionEditor {
         }
         val opTv = TextView(a).apply {
             textSize = 15f
-            setTextColor(C.text)
+            setTextColor(t.textPrimary)
             text = "operator: $op"
             setPadding(dp(a, 10f), dp(a, 10f), dp(a, 10f), dp(a, 10f))
-            background = UI.rounded(C.surface, 10f, C.border, 1f)
+            background = Maniflow.rounded(a, t.cardBg, 10, t.borderColor, 1f)
             setOnClickListener {
                 operatorPick(a) { newOp ->
                     op = newOp
@@ -342,7 +345,7 @@ object ActionEditor {
                 }
             }
         }
-        val varsBtn = ctxRow(a, "PICK VARIABLE FROM APP", C.accent) {
+        val varsBtn = ctxRow(a, "PICK VARIABLE FROM APP", t.accentPrimary) {
             varPick(a, varEt.text.toString()) { name ->
                 varEt.setText(name)
             }
@@ -382,21 +385,22 @@ object ActionEditor {
         val type = existing.type
 
         if (type == Actions.SET_ALARM) {
-            alarmDialog(a, existing, onSave, onRemove)
+            ActionEditorDialogs.alarmDialog(a, existing, onSave, onRemove)
             return
         }
 
         if (type == Actions.HTTP) {
-            httpDialog(a, existing, onSave, onRemove)
+            ActionEditorDialogs.httpDialog(a, existing, onSave, onRemove)
             return
         }
 
+        val t = Theme.current
         val (vh, eh, e2h) = actionFieldHints(type)
 
         val ll = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
         if (Actions.noParams(type)) {
             ll.addView(
-                UI.text(a, "No parameters needed.\nRuns when the task reaches this step.", 14f, C.textSec).apply {
+                Maniflow.text(a, "No parameters needed.\nRuns when the task reaches this step.", 14f, t.textMuted).apply {
                     setPadding(dp(a, 8f), dp(a, 8f), dp(a, 8f), dp(a, 8f))
                 }
             )
@@ -440,21 +444,21 @@ object ActionEditor {
         }
         when (type) {
             Actions.TASK_RUN, Actions.TASK_STOP, Actions.TASK_ENABLE, Actions.TASK_DISABLE -> {
-                ll.addView(ctxRow(a, "PICK TASK FROM APP", C.accent) {
+                ll.addView(ctxRow(a, "PICK TASK FROM APP", t.accentPrimary) {
                     taskPick(a, valueEt?.text?.toString() ?: "") { name ->
                         valueEt?.setText(name)
                     }
                 })
             }
             Actions.PROFILE_ENABLE, Actions.PROFILE_DISABLE, Actions.PROFILE_DELETE -> {
-                ll.addView(ctxRow(a, "PICK PROFILE FROM APP", C.accent) {
+                ll.addView(ctxRow(a, "PICK PROFILE FROM APP", t.accentPrimary) {
                     profilePick(a, valueEt?.text?.toString() ?: "") { name ->
                         valueEt?.setText(name)
                     }
                 })
             }
             Actions.ARRAY_PROCESS -> {
-                ll.addView(ctxRow(a, "PICK PROCESS OP", C.accent) {
+                ll.addView(ctxRow(a, "PICK PROCESS OP", t.accentPrimary) {
                     val ops = arrayOf("reverse", "sort", "sort desc", "unique", "upper", "lower", "trim")
                     AlertDialog.Builder(a)
                         .setTitle("ARRAY PROCESS")
@@ -469,12 +473,12 @@ object ActionEditor {
                 .apply { isChecked = existing.extra2 == "su" }
             ll.addView(suCb)
             ll.addView(
-                UI.text(
+                Maniflow.text(
                     a,
                     "The standard API for this action is restricted on newer Android versions. " +
                         "Tick to run it with su. Otherwise Shizuku is used when granted, or you get a " +
                         "notification telling you what to enable.",
-                    12f, C.hint
+                    12f, t.textMuted
                 ).apply { setPadding(dp(a, 2f), dp(a, 2f), dp(a, 2f), dp(a, 8f)) }
             )
         }
@@ -503,178 +507,6 @@ object ActionEditor {
                         extra2,
                         condStr,
                         labelEt.text.toString()
-                    )
-                )
-            }
-            .setNegativeButton("CANCEL", null)
-        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-        d.show()
-    }
-
-    /** Custom editor for the Set Alarm action: time, snooze, vibration, label, sound. */
-    private fun alarmDialog(
-        a: Activity,
-        existing: Action,
-        onSave: (Action) -> Unit,
-        onRemove: (() -> Unit)?
-    ) {
-        var hour = existing.value.split(":").getOrNull(0)?.toIntOrNull() ?: 7
-        var minute = existing.value.split(":").getOrNull(1)?.toIntOrNull() ?: 0
-        var cfg = Actions.alarmCfg(existing.extra2)
-
-        val labelEt = editText(a, "alarm label").apply { setText(existing.extra) }
-        val vibrateCb = checkBox(a, "vibration on").apply { isChecked = cfg.vibrate }
-        val suCb = checkBox(a, "Run with su").apply { isChecked = cfg.useSu }
-
-        lateinit var timeTv: TextView
-        timeTv = TextView(a).apply {
-            textSize = 18f
-            text = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
-            setTextColor(C.primary)
-            setPadding(dp(a, 10f), dp(a, 12f), dp(a, 10f), dp(a, 12f))
-            background = UI.rounded(C.surface, 10f, C.border, 1f)
-            setOnClickListener {
-                TimePickerDialog(a, { _, h, m ->
-                    hour = h
-                    minute = m
-                    timeTv.text = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
-                }, hour, minute, true).show()
-            }
-        }
-
-        val ll = LinearLayout(a).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(sectionLabel(a, "TIME"))
-            addView(timeTv)
-            addView(sectionLabel(a, "ALARM"))
-            addView(labelEt)
-            addView(vibrateCb)
-            addView(suCb)
-        }
-
-        val d = AlertDialog.Builder(a)
-            .setTitle("ACTION  ${existing.typeLabel()}")
-            .setMessage(
-                "Sets the alarm in the system clock app (no root, no UI). " +
-                    "On Android 12+ it needs the 'Exact alarms' special permission " +
-                    "(Settings tab > Exact alarms) or the clock app refuses it. " +
-                    "Tick 'Run with su' to set it via root instead."
-            )
-            .setView(ll)
-            .setPositiveButton("OK") { _, _ ->
-                val label = labelEt.text.toString().trim()
-                val newCfg = cfg.copy(
-                    vibrate = vibrateCb.isChecked,
-                    useSu = suCb.isChecked
-                )
-                onSave(
-                    Action(
-                        Actions.SET_ALARM,
-                        String.format(java.util.Locale.US, "%02d:%02d", hour, minute),
-                        label,
-                        Actions.alarmEncode(newCfg),
-                        existing.cond,
-                        existing.label
-                    )
-                )
-            }
-            .setNegativeButton("CANCEL", null)
-        if (onRemove != null) d.setNeutralButton("REMOVE") { _, _ -> onRemove() }
-        d.show()
-    }
-
-    /** Custom editor for the HTTP Request action. */
-    private fun httpDialog(
-        a: Activity,
-        existing: Action,
-        onSave: (Action) -> Unit,
-        onRemove: (() -> Unit)?
-    ) {
-        var cfg = Actions.httpCfg(existing.extra2)
-
-        val urlEt = editText(a, "URL  (https://..., %VAR% ok)").apply { setText(existing.value) }
-        var method = cfg.method.uppercase().ifBlank { "GET" }
-        lateinit var methodTv: TextView
-        methodTv = ctxRow(a, "METHOD: $method", C.accent) {
-            val ops = arrayOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD")
-            AlertDialog.Builder(a)
-                .setTitle("HTTP METHOD")
-                .setItems(ops) { _, which ->
-                    method = ops[which]
-                    methodTv.text = "METHOD: $method"
-                }
-                .setNegativeButton("CANCEL", null)
-                .show()
-        }
-        val headersEt = editText(a, "headers  key:value  (one per line / | / ;)").apply {
-            setText(cfg.headers)
-            setMinLines(2)
-            gravity = android.view.Gravity.TOP or android.view.Gravity.START
-        }
-        val queryEt = editText(a, "query params  key:value  (%VAR% ok)").apply {
-            setText(cfg.query)
-            setMinLines(2)
-            gravity = android.view.Gravity.TOP or android.view.Gravity.START
-        }
-        val bodyEt = editText(a, "request body (POST/PUT/PATCH, %VAR% ok)").apply {
-            setText(cfg.body)
-            setMinLines(2)
-            gravity = android.view.Gravity.TOP or android.view.Gravity.START
-        }
-        val ctypeEt = editText(a, "content-type (optional)").apply { setText(cfg.contentType) }
-        val timeoutEt = editText(a, "timeout seconds (default 15)").apply {
-            setText(cfg.timeoutSec.toString())
-        }
-        val resultEt = editText(a, "result variable (default %http_result)").apply {
-            setText(cfg.resultVar)
-        }
-        val saveEt = editText(a, "save body to file path (optional, /sdcard/... or relative)").apply {
-            setText(cfg.saveFile)
-        }
-        val redirectCb = checkBox(a, "follow redirects").apply { isChecked = cfg.followRedirects }
-
-        val ll = LinearLayout(a).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(urlEt)
-            addView(methodTv)
-            addView(sectionLabel(a, "HEADERS"))
-            addView(headersEt)
-            addView(sectionLabel(a, "QUERY PARAMS"))
-            addView(queryEt)
-            addView(sectionLabel(a, "BODY (used by POST/PUT/PATCH)"))
-            addView(bodyEt)
-            addView(ctypeEt)
-            addView(timeoutEt)
-            addView(resultEt)
-            addView(saveEt)
-            addView(redirectCb)
-        }
-        val scroll = android.widget.ScrollView(a).apply { addView(ll) }
-
-        val d = AlertDialog.Builder(a)
-            .setTitle("ACTION  ${existing.typeLabel()}")
-            .setView(scroll)
-            .setPositiveButton("OK") { _, _ ->
-                val newCfg = Actions.HttpCfg(
-                    method = method,
-                    headers = headersEt.text.toString(),
-                    contentType = ctypeEt.text.toString().trim(),
-                    body = bodyEt.text.toString(),
-                    query = queryEt.text.toString(),
-                    timeoutSec = (timeoutEt.text.toString().toIntOrNull() ?: 15).coerceIn(1, 120),
-                    resultVar = resultEt.text.toString().trim().removePrefix("%")
-                        .ifBlank { "http_result" },
-                    saveFile = saveEt.text.toString().trim(),
-                    followRedirects = redirectCb.isChecked
-                )
-                onSave(
-                    Action(
-                        Actions.HTTP,
-                        urlEt.text.toString().trim(),
-                        method,
-                        Actions.httpEncode(newCfg),
-                        existing.cond,
-                        existing.label
                     )
                 )
             }

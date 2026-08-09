@@ -8,11 +8,11 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import com.eventsh.app.ui.C
-import com.eventsh.app.ui.UI
+import com.eventsh.app.ui.Maniflow
+import com.eventsh.app.ui.Theme
 
 /**
- * HELP - one file that documents every action / concept of EventHub, shown
+ * HELP - one file that documents every action / concept of Maniflow, shown
  * inside the app via Settings -> HELP. Content is plain English, structured
  * per action with its fields and an example. No external library.
  */
@@ -22,7 +22,7 @@ object Help {
 
     private val CONTENT: List<Section> = listOf(
         Section("QUICK START", listOf(
-            "EventHub is built from two things: PROFILES and TASKS.",
+            "Maniflow is built from two things: PROFILES and TASKS.",
             "- A PROFILE watches for an event (a time, an app opening, an SMS, battery level, location, ...).",
             "- When its event fires, the profile runs the linked TASK.",
             "- A TASK is a list of ACTIONS that run top to bottom.",
@@ -174,13 +174,14 @@ object Help {
 
     /** Renders the whole help document inside a scrollable dialog. */
     fun show(activity: Activity) {
+        val t = Theme.current
         val scroll = ScrollView(activity).apply {
-            setBackgroundColor(C.bg)
+            setBackgroundColor(t.surfaceBg)
             isVerticalScrollBarEnabled = true
         }
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(UI.dp(activity, 16f), UI.dp(activity, 16f), UI.dp(activity, 16f), UI.dp(activity, 16f))
+            setPadding(Maniflow.dp(activity, 16), Maniflow.dp(activity, 16), Maniflow.dp(activity, 16), Maniflow.dp(activity, 16))
         }
         scroll.addView(
             root,
@@ -189,46 +190,47 @@ object Help {
 
         var first = true
         for (section in CONTENT) {
-            if (!first) root.addView(UI.vsep(activity, UI.dp(activity, 14f)))
+            if (!first) root.addView(Maniflow.divider(activity))
             first = false
             root.addView(heading(activity, section.heading))
             for (line in section.lines) root.addView(blockLine(activity, line))
         }
 
         AlertDialog.Builder(activity)
-            .setTitle("EVENTSH HELP")
+            .setTitle("MANIFLOW HELP")
             .setView(scroll)
             .setPositiveButton("CLOSE", null)
             .show()
     }
 
     private fun heading(activity: Activity, text: String): TextView =
-        UI.text(activity, text.uppercase(java.util.Locale.US), 13f, C.accent, bold = true).apply {
+        Maniflow.text(activity, text.uppercase(java.util.Locale.US), 13f, Theme.current.accentPrimary, bold = true).apply {
             letterSpacing = 0.1f
-            setPadding(UI.dp(activity, 2f), UI.dp(activity, 6f), UI.dp(activity, 2f), UI.dp(activity, 8f))
+            setPadding(Maniflow.dp(activity, 2), Maniflow.dp(activity, 6), Maniflow.dp(activity, 2), Maniflow.dp(activity, 8))
         }
 
     private fun blockLine(activity: Activity, line: String): View {
+        val t = Theme.current
         return when {
             line.startsWith("# ") -> TextView(activity).apply {
                 text = line.substring(2)
                 textSize = 12.5f
-                setTextColor(C.text)
+                setTextColor(t.textPrimary)
                 typeface = Typeface.MONOSPACE
-                setPadding(UI.dp(activity, 8f), UI.dp(activity, 6f), UI.dp(activity, 8f), UI.dp(activity, 6f))
-                background = UI.rounded(C.surface, 8f)
+                setPadding(Maniflow.dp(activity, 8), Maniflow.dp(activity, 6), Maniflow.dp(activity, 8), Maniflow.dp(activity, 6))
+                background = Maniflow.rounded(activity, t.cardBg, 8)
             }
             line.startsWith("- ") -> TextView(activity).apply {
                 text = "  \u2022  " + line.substring(2)
                 textSize = 13.5f
-                setTextColor(C.text)
-                setPadding(UI.dp(activity, 4f), UI.dp(activity, 1f), UI.dp(activity, 4f), UI.dp(activity, 1f))
+                setTextColor(t.textPrimary)
+                setPadding(Maniflow.dp(activity, 4), Maniflow.dp(activity, 1), Maniflow.dp(activity, 4), Maniflow.dp(activity, 1))
             }
             else -> TextView(activity).apply {
                 text = line
                 textSize = 13.5f
-                setTextColor(C.textSec)
-                setPadding(UI.dp(activity, 4f), UI.dp(activity, 1f), UI.dp(activity, 4f), UI.dp(activity, 1f))
+                setTextColor(t.textMuted)
+                setPadding(Maniflow.dp(activity, 4), Maniflow.dp(activity, 1), Maniflow.dp(activity, 4), Maniflow.dp(activity, 1))
             }
         }
     }

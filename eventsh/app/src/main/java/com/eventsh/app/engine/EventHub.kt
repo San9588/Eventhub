@@ -250,7 +250,7 @@ object EventHub {
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.w("EVENTSH", "receiver error", e)
+                android.util.Log.w("Maniflow", "receiver error", e)
             }
         }
     }

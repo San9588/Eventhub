@@ -23,8 +23,8 @@ import com.eventsh.app.engine.Dispatcher
 import com.eventsh.app.engine.EventLog
 import com.eventsh.app.engine.Store
 import com.eventsh.app.engine.Task
-import com.eventsh.app.ui.C
-import com.eventsh.app.ui.UI
+import com.eventsh.app.ui.Maniflow
+import com.eventsh.app.ui.Theme
 import java.util.UUID
 
 /**
@@ -55,6 +55,7 @@ class TaskActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val t = Theme.current
         taskId = intent.getStringExtra("taskId") ?: ""
         existing = if (taskId.isBlank()) null else Store.tasks(this).find { it.id == taskId }
         actions.clear()
@@ -62,7 +63,7 @@ class TaskActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(C.bg)
+            setBackgroundColor(t.surfaceBg)
         }
         root.addView(buildTopBar())
         root.addView(buildBody(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -92,6 +93,7 @@ class TaskActivity : Activity() {
     }
 
     private fun buildTopBar(): View {
+        val t = Theme.current
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -100,13 +102,13 @@ class TaskActivity : Activity() {
         val back = TextView(this).apply {
             text = "‹  BACK"
             textSize = 16f
-            setTextColor(C.accent)
+            setTextColor(t.accentPrimary)
             setPadding(dp(6f), dp(4f), dp(12f), dp(4f))
             setOnClickListener { finish() }
         }
         bar.addView(back)
         bar.addView(
-            UI.text(this, if (existing == null) "NEW TASK" else existing!!.name, 18f, C.text, bold = true).apply {
+            Maniflow.text(this, if (existing == null) "NEW TASK" else existing!!.name, 18f, t.textPrimary, bold = true).apply {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             },
@@ -118,7 +120,7 @@ class TaskActivity : Activity() {
             text = "DELETE"
             textSize = 15f
             boldText()
-            setTextColor(C.danger)
+            setTextColor(t.danger)
             setPadding(dp(8f), dp(6f), dp(8f), dp(6f))
             visibility = View.GONE
             setOnClickListener { deleteSelected() }
@@ -130,7 +132,8 @@ class TaskActivity : Activity() {
     }
 
     private fun buildBody(): View {
-        val scroll = ScrollView(this).apply { setBackgroundColor(C.bg) }
+        val t = Theme.current
+        val scroll = ScrollView(this).apply { setBackgroundColor(t.surfaceBg) }
         val ll = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12f), dp(4f), dp(12f), dp(16f))
@@ -146,7 +149,7 @@ class TaskActivity : Activity() {
             setPadding(dp(4f), dp(10f), dp(4f), dp(2f))
         }
         enRow.addView(
-            UI.text(this, "Task enabled", 15f, C.text).apply {
+            Maniflow.text(this, "Task enabled", 15f, t.textPrimary).apply {
                 setPadding(0, 0, 0, 0)
             },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -166,7 +169,7 @@ class TaskActivity : Activity() {
         ll.addView(actBox)
 
         ll.addView(
-            UI.text(this, "Each action can carry its own IF guard - tap it, press + ADD CONDITION, pick a variable from the app or type one, and connect multiple conditions with AND / OR / XOR.", 12f, C.hint).apply {
+            Maniflow.text(this, "Each action can carry its own IF guard - tap it, press + ADD CONDITION, pick a variable from the app or type one, and connect multiple conditions with AND / OR / XOR.", 12f, t.textMuted).apply {
                 setPadding(dp(4f), dp(12f), dp(4f), dp(4f))
             }
         )
@@ -178,7 +181,7 @@ class TaskActivity : Activity() {
         actBox.removeAllViews()
         if (actions.isEmpty()) {
             actBox.addView(
-                UI.text(this, "(no actions yet - add one)", 14f, C.hint).apply {
+                Maniflow.text(this, "(no actions yet - add one)", 14f, Theme.current.textMuted).apply {
                     setPadding(dp(4f), dp(6f), dp(4f), dp(6f))
                 }
             )
@@ -189,7 +192,7 @@ class TaskActivity : Activity() {
                 actBox.addView(row)
             }
         }
-        actBox.addView(ActionEditor.ctxRow(this, "+ ADD ACTION", C.accent) {
+        actBox.addView(ActionEditor.ctxRow(this, "+ ADD ACTION", Theme.current.accentPrimary) {
             ActionEditor.actionTypePick(this) { type ->
                 ActionEditor.actionDialog(
                     this, Action(type),
@@ -202,6 +205,7 @@ class TaskActivity : Activity() {
 
     /** Builds one action tile: order number on the left, content, status dot, drag grip. */
     private fun actionRow(i: Int): View {
+        val t = Theme.current
         val a = actions[i]
         val condLine = a.condTerms()?.let { (t, j) -> CondSpec.summary(t, j) }
         val labelPrefix = if (a.label.isBlank()) "" else "{${a.label}}  "
@@ -209,16 +213,16 @@ class TaskActivity : Activity() {
             (if (condLine.isNullOrBlank()) "" else "   [IF $condLine]")
         val isSel = selected.contains(i)
         val border = when {
-            isSel -> C.primary
-            runMarks[i] == ST_OK -> C.ok
-            runMarks[i] == ST_FAIL -> C.danger
-            runMarks[i] == ST_RUN -> C.accent
-            else -> C.border
+            isSel -> t.accentPrimary
+            runMarks[i] == ST_OK -> t.ok
+            runMarks[i] == ST_FAIL -> t.danger
+            runMarks[i] == ST_RUN -> t.accentPrimary
+            else -> t.borderColor
         }
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = UI.rounded(if (isSel) C.primarySoft else C.card, 10f, border, if (isSel) 2f else 1f)
+            background = Maniflow.rounded(this@TaskActivity, if (isSel) t.primarySoft else t.cardBg, 10, border, if (isSel) 2f else 1f)
             setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             isClickable = true
             isLongClickable = true
@@ -240,30 +244,31 @@ class TaskActivity : Activity() {
             }
         }
         wrap.addView(
-            UI.text(this, "${i + 1}.", 15f, C.accent, bold = true),
+            Maniflow.text(this, "${i + 1}.", 15f, t.accentPrimary, bold = true),
             LinearLayout.LayoutParams(dp(34f), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 marginEnd = dp(6f)
             }
         )
         wrap.addView(
-            UI.text(this, text, 15f, C.text),
+            Maniflow.text(this, text, 15f, t.textPrimary),
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
         wrap.addView(statusDot(i), LinearLayout.LayoutParams(dp(12f), dp(12f)).apply {
             marginEnd = dp(8f)
         })
-        wrap.addView(UI.text(this, "≡", 18f, C.hint))
+        wrap.addView(Maniflow.text(this, "≡", 18f, t.textMuted))
         return wrap
     }
 
     /** Colored circle reflecting the last manual-run result of action [i]. */
     private fun statusDot(i: Int): TextView {
+        val t = Theme.current
         val st = runMarks[i]
-        return UI.text(this, "●", 13f, when (st) {
-            ST_OK -> C.ok
-            ST_FAIL -> C.danger
-            ST_RUN -> C.accent
-            else -> C.disabled
+        return Maniflow.text(this, "●", 13f, when (st) {
+            ST_OK -> t.ok
+            ST_FAIL -> t.danger
+            ST_RUN -> t.accentPrimary
+            else -> t.disabled
         }).apply {
             contentDescription = when (st) {
                 ST_OK -> "ran ok"
@@ -276,8 +281,8 @@ class TaskActivity : Activity() {
 
     /** Round play / stop FAB docked above the bottom save/delete bar. */
     private fun buildRunFab(): ImageView = ImageView(this).apply {
-        background = ovalBg(C.primary)
-        setColorFilter(C.onPrimary)
+        background = ovalBg(Theme.current.accentPrimary)
+        setColorFilter(Theme.current.headerText)
         setPadding(dp(18f), dp(18f), dp(18f), dp(18f))
         elevation = dp(6f).toFloat()
         contentDescription = "Run task"
@@ -333,7 +338,7 @@ class TaskActivity : Activity() {
 
     private fun setRunButton(running: Boolean) {
         runBtn.setImageResource(if (running) R.drawable.ic_stop else R.drawable.ic_play)
-        runBtn.background = ovalBg(if (running) C.danger else C.primary)
+        runBtn.background = ovalBg(if (running) Theme.current.danger else Theme.current.accentPrimary)
     }
 
     private fun toggleSelect(i: Int) {
@@ -364,6 +369,7 @@ class TaskActivity : Activity() {
     }
 
     private fun buildBottomBar(): View {
+        val t = Theme.current
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
@@ -371,14 +377,14 @@ class TaskActivity : Activity() {
         }
         if (existing != null) {
             bar.addView(
-                materialButton("DELETE", C.danger) { confirmDelete() },
+                materialButton("DELETE", t.danger) { confirmDelete() },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(8f)
                 }
             )
         }
         bar.addView(
-            materialButton("SAVE", C.primary) { save() },
+            materialButton("SAVE", t.accentPrimary) { save() },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
         return bar
@@ -389,10 +395,16 @@ class TaskActivity : Activity() {
             text = label
             textSize = 16f
             boldText()
-            setTextColor(C.onPrimary.takeIf { color == C.primary } ?: C.text)
+            setTextColor(if (color == Theme.current.accentPrimary) Theme.current.headerText else Theme.current.textPrimary)
             gravity = Gravity.CENTER
             setPadding(dp(10f), dp(12f), dp(10f), dp(12f))
-            background = UI.rounded(if (color == C.primary) C.primary else C.card, 12f, C.border, 1f)
+            background = Maniflow.rounded(
+                this@TaskActivity,
+                if (color == Theme.current.accentPrimary) color else Theme.current.cardBg,
+                12,
+                Theme.current.borderColor,
+                1f
+            )
             setOnClickListener { onClick() }
         }
 

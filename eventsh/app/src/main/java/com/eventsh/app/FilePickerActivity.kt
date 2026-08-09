@@ -12,8 +12,8 @@ import android.widget.BaseAdapter
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
-import com.eventsh.app.ui.C
-import com.eventsh.app.ui.UI
+import com.eventsh.app.ui.Maniflow
+import com.eventsh.app.ui.Theme
 import java.io.File
 
 /**
@@ -38,15 +38,16 @@ class FilePickerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val t = Theme.current
         val start = intent.getStringExtra(EXTRA_START)
         if (!start.isNullOrBlank() && File(start).isDirectory) currentDir = File(start)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(C.bg)
+            setBackgroundColor(t.surfaceBg)
         }
         root.addView(buildTopBar())
-        pathTv = UI.text(this, "", 13f, C.textSec).apply {
+        pathTv = Maniflow.text(this, "", 13f, t.textMuted).apply {
             setPadding(dp(14f), dp(6f), dp(14f), dp(6f))
             maxLines = 1
         }
@@ -55,7 +56,7 @@ class FilePickerActivity : Activity() {
             divider = null
             dividerHeight = 0
             setSelector(android.R.color.transparent)
-            setBackgroundColor(C.bg)
+            setBackgroundColor(t.surfaceBg)
         }
         root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(buildBottomBar())
@@ -74,28 +75,29 @@ class FilePickerActivity : Activity() {
     }
 
     private fun buildTopBar(): View {
+        val t = Theme.current
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8f), dp(12f), dp(8f), dp(10f))
-            setBackgroundColor(C.surface)
+            setBackgroundColor(t.cardBg)
         }
         val back = TextView(this).apply {
             text = "‹  BACK"
             textSize = 16f
-            setTextColor(C.accent)
+            setTextColor(t.accentPrimary)
             setPadding(dp(6f), dp(4f), dp(12f), dp(4f))
             setOnClickListener { goUp() }
         }
         bar.addView(back)
         bar.addView(
-            UI.text(this, "SELECT PATH", 16f, C.text, bold = true),
+            Maniflow.text(this, "SELECT PATH", 16f, t.textPrimary, bold = true),
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
         val home = TextView(this).apply {
             text = "HOME"
             textSize = 13f
-            setTextColor(C.primary)
+            setTextColor(t.accentPrimary)
             setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
             setOnClickListener {
                 open(File(Environment.getExternalStorageDirectory(), ""))
@@ -106,18 +108,19 @@ class FilePickerActivity : Activity() {
     }
 
     private fun buildBottomBar(): View {
+        val t = Theme.current
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
             setPadding(dp(12f), dp(6f), dp(12f), dp(12f))
-            setBackgroundColor(C.bg)
+            setBackgroundColor(t.surfaceBg)
         }
         bar.addView(
-            materialButton("CANCEL", C.danger) { setResult(RESULT_CANCELED); finish() },
+            materialButton("CANCEL", t.danger) { setResult(RESULT_CANCELED); finish() },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8f) }
         )
         bar.addView(
-            materialButton("USE THIS FOLDER", C.primary) { select(currentDir.absolutePath) },
+            materialButton("USE THIS FOLDER", t.accentPrimary) { select(currentDir.absolutePath) },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
         return bar
@@ -128,10 +131,16 @@ class FilePickerActivity : Activity() {
             text = label
             textSize = 14f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setTextColor(if (color == C.primary) C.onPrimary else C.text)
+            setTextColor(if (color == Theme.current.accentPrimary) Theme.current.headerText else Theme.current.textPrimary)
             gravity = Gravity.CENTER
             setPadding(dp(10f), dp(12f), dp(10f), dp(12f))
-            background = UI.rounded(if (color == C.primary) C.primary else C.card, 12f, C.border, 1f)
+            background = Maniflow.rounded(
+                this@FilePickerActivity,
+                if (color == Theme.current.accentPrimary) color else Theme.current.cardBg,
+                12,
+                Theme.current.borderColor,
+                1f
+            )
             setOnClickListener { onClick() }
         }
 
@@ -168,21 +177,22 @@ class FilePickerActivity : Activity() {
         override fun getItemId(pos: Int) = pos.toLong()
 
         override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
+            val t = Theme.current
             val e = entries[pos]
             val row = LinearLayout(this@FilePickerActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(14f), dp(12f), dp(14f), dp(12f))
-                setBackgroundColor(C.bg)
+                setBackgroundColor(t.surfaceBg)
             }
             val icon = TextView(this@FilePickerActivity).apply {
                 text = if (e.isDir) "▸" else "·"
                 textSize = 15f
-                setTextColor(if (e.isDir) C.accent else C.hint)
+                setTextColor(if (e.isDir) t.accentPrimary else t.textMuted)
             }
             row.addView(icon, LinearLayout.LayoutParams(dp(22f), ViewGroup.LayoutParams.WRAP_CONTENT))
             row.addView(
-                UI.text(this@FilePickerActivity, e.file.name, 15f, if (e.isDir) C.text else C.textSec).apply {
+                Maniflow.text(this@FilePickerActivity, e.file.name, 15f, if (e.isDir) t.textPrimary else t.textMuted).apply {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
                 },
@@ -204,5 +214,5 @@ class FilePickerActivity : Activity() {
         return wrap
     }
 
-    private fun dp(v: Float): Int = UI.dp(this, v)
+    private fun dp(v: Float): Int = Maniflow.dpf(this, v)
 }

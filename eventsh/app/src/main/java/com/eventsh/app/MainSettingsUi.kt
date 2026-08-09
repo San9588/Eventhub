@@ -2,191 +2,218 @@ package com.eventsh.app
 
 import android.content.Intent
 import android.os.Build
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Switch
 import android.widget.TextView
 import com.eventsh.app.engine.RootBridge
 import com.eventsh.app.engine.Store
 import com.eventsh.app.service.EventService
-import com.eventsh.app.ui.C
-import com.eventsh.app.ui.UI
+import com.eventsh.app.ui.Maniflow
+import com.eventsh.app.ui.ManiflowToggle
+import com.eventsh.app.ui.Theme
 
 /**
- * MainActivity SETTINGS TAB - all UI code for the "Settings" tab.
- *
- * NOTE: these are Kotlin extension functions on MainActivity, so they can use
- * the activity's fields (dp, handler, status views, ...) exactly like before.
+ * MainActivity SETTINGS TAB - all UI code for the "Settings" tab, rebuilt on
+ * the shared Maniflow components so it stays consistent with the rest of the app.
  */
 fun MainActivity.buildSettings() {
-        val scroll = ScrollView(this).apply { setBackgroundColor(C.bg) }
-        settingsScroll = scroll
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
-        }
-        scroll.addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        contentFrame.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-        // ---- ENGINE
-        root.addView(sectionLabel("ENGINE"))
-        val svcCard = cardContainer()
-        svcSwitch = Switch(this)
-        svcSwitchRow = UI.text(this, "listening for events", 13f, C.textSec)
-        val svcRow = switchRow("Background service", svcSwitch, svcSwitchRow, {
-            if (isServiceRunning()) {
-                stopService(Intent(this, EventService::class.java))
-            } else {
-                startServiceCompat()
-            }
-            handler.postDelayed({ refreshScreen() }, 400)
-        })
-        svcCard.addView(svcRow, matchWrap())
-        autoSwitch = Switch(this)
-        autoSwitch.isChecked = Store.autostart(this)
-        autoSwitch.setOnCheckedChangeListener { _, checked -> Store.setAutostart(this, checked) }
-        val autoRow = switchRow("Start on boot", autoSwitch, UI.text(this, "restart engine after reboot", 13f, C.textSec), null)
-        svcCard.addView(autoRow, matchWrap())
-        root.addView(svcCard, matchWrap())
-
-        // ---- PERMISSIONS
-        root.addView(sectionLabel("PERMISSIONS"))
-        val permCard = cardContainer()
-        val rootRow = actionRowContent("Root", "check su binary availability", {
-            RootBridge.checkAsync()
-            handler.postDelayed({ refreshScreen() }, 900)
-        })
-        rootStatusTv = rootRow.second
-        permCard.addView(rootRow.first, matchWrap())
-        val shizukuRow = actionRowContent("Shizuku", "run restricted actions without root (Android 13+)", {
-            com.eventsh.app.engine.ShizukuClient.requestPermission(this)
-            handler.postDelayed({ refreshScreen() }, 900)
-        })
-        shizukuStatusTv = shizukuRow.second
-        permCard.addView(shizukuRow.first, matchWrap())
-        val usageRow = actionRowContent("Usage access", "detect foreground app (app triggers)", {
-            startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
-        })
-        usageStatusTv = usageRow.second
-        permCard.addView(usageRow.first, matchWrap())
-        val notifRow = actionRowContent("Notification access", "read posted notifications (notify_post)", {
-            startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-        })
-        notifStatusTv = notifRow.second
-        permCard.addView(notifRow.first, matchWrap())
-        val overlayRow = actionRowContent("Display over other apps", "background Flash popups", {
-            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                android.net.Uri.parse("package:$packageName")))
-        })
-        overlayStatusTv = overlayRow.second
-        permCard.addView(overlayRow.first, matchWrap())
-        val exactRow = actionRowContent("Exact alarms", "let alarms fire at the exact time (Android 12+)", {
-            if (Build.VERSION.SDK_INT >= 31) {
-                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                    android.net.Uri.parse("package:$packageName")))
-            }
-            handler.postDelayed({ refreshScreen() }, 900)
-        })
-        exactStatusTv = exactRow.second
-        permCard.addView(exactRow.first, matchWrap())
-        val battRow = actionRowContent("Ignore battery optimization", "prevent the OS from killing timers/alarms", {
-            startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                android.net.Uri.parse("package:$packageName")))
-            handler.postDelayed({ refreshScreen() }, 900)
-        })
-        battOptStatusTv = battRow.second
-        permCard.addView(battRow.first, matchWrap())
-        val smsRow = actionRowContent("SMS + Phone + Bluetooth", "runtime permissions for events", {
-            requestPermissions(arrayOf(
-                android.Manifest.permission.RECEIVE_SMS,
-                android.Manifest.permission.READ_PHONE_STATE,
-                android.Manifest.permission.BLUETOOTH_CONNECT
-            ), 20)
-        })
-        permCard.addView(smsRow.first, matchWrap())
-        val locRow = actionRowContent("Location", "geo-fence triggers (ACCESS_FINE_LOCATION)", {
-            requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION), 31)
-        })
-        locStatusTv = locRow.second
-        permCard.addView(locRow.first, matchWrap())
-        root.addView(permCard, matchWrap())
-
-        // ---- DATA
-        root.addView(sectionLabel("DATA"))
-        val dataCard = cardContainer()
-        dataCard.addView(actionRowContent("Export", "backup profiles + tasks + variables", { exportRules() }).first, matchWrap())
-        dataCard.addView(actionRowContent("Import", "restore profiles + tasks + variables from backup", { importRules() }).first, matchWrap())
-        root.addView(dataCard, matchWrap())
-
-        // ---- HELP
-        root.addView(sectionLabel("HELP"))
-        val helpCard = cardContainer()
-        helpCard.addView(
-            actionRowContent("Help", "every action documented inside the app", { Help.show(this) }).first,
-            matchWrap()
-        )
-        root.addView(helpCard, matchWrap())
-
-        // ---- ABOUT
-        root.addView(sectionLabel("ABOUT"))
-        val aboutCard = cardContainer()
-        aboutText = UI.text(this, "", 13f, C.textSec)
-        aboutCard.addView(aboutText, matchWrap())
-        root.addView(aboutCard, matchWrap())
-        root.addView(UI.vsep(this, dp(80f)))
+    val t = Theme.current
+    val root = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundColor(t.surfaceBg)
     }
+    root.addView(Maniflow.header(this, "Settings"))
+
+    val scroll = ScrollView(this).apply { setBackgroundColor(t.surfaceBg) }
+    settingsScroll = scroll
+    val body = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(6f), dp(8f), dp(6f), dp(24f))
+    }
+    scroll.addView(body, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+    contentFrame.addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+    body.addView(Maniflow.sectionLabel(this, "Engine"))
+    body.addView(engineCard(), matchWrap())
+
+    body.addView(Maniflow.sectionLabel(this, "Permissions", topMargin = 12))
+    body.addView(permissionsCard(), matchWrap())
+
+    body.addView(Maniflow.sectionLabel(this, "Data", topMargin = 12))
+    body.addView(dataCard(), matchWrap())
+
+    body.addView(Maniflow.sectionLabel(this, "Help", topMargin = 12))
+    body.addView(helpCard(), matchWrap())
+
+    body.addView(Maniflow.sectionLabel(this, "About", topMargin = 12))
+    body.addView(aboutCard(), matchWrap())
+}
 
 fun MainActivity.matchWrap(): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
-fun MainActivity.cardContainer(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(4f), dp(4f), dp(4f), dp(4f))
-        background = UI.rounded(C.surface, 14f)
+private fun MainActivity.toggleRow(
+    icon: Int,
+    tint: Int,
+    title: String,
+    subtitleTv: TextView,
+    toggle: ManiflowToggle,
+    showDivider: Boolean = true
+): View {
+    val t = Theme.current
+    val row = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = android.view.Gravity.CENTER_VERTICAL
+        setPadding(dp(2f), dp(10f), dp(2f), dp(10f))
     }
+    row.addView(Maniflow.badge(this, icon, tint))
+    val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    col.addView(Maniflow.text(this, title, 16f, t.textPrimary, bold = true))
+    col.addView(subtitleTv)
+    row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+        marginStart = dp(12f)
+    })
+    row.addView(toggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        marginStart = dp(8f)
+    })
+    val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    wrap.addView(row)
+    if (showDivider) wrap.addView(Maniflow.divider(this))
+    return wrap
+}
 
-fun MainActivity.switchRow(
-        label: String,
-        sw: Switch,
-        subtitle: TextView,
-        onChange: (() -> Unit)?
-    ): View {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), dp(8f), dp(8f), dp(8f))
+private fun MainActivity.statusRow(
+    icon: Int,
+    tint: Int,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+): Pair<View, TextView> {
+    val status = Maniflow.text(this, "", 13f, Theme.current.textMuted).apply {
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    val row = Maniflow.listRow(this, icon, tint, title, subtitle = subtitle, trailing = status, onClick = onClick)
+    return row to status
+}
+
+private fun MainActivity.engineCard(): View {
+    val t = Theme.current
+    val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+    svcSwitch = Maniflow.toggle(this, running) { on ->
+        if (on) startServiceCompat() else stopService(Intent(this, EventService::class.java))
+        handler.postDelayed({ refreshScreen() }, 400)
+    }
+    svcSwitchRow = Maniflow.text(this, "listening for events", 12f, t.textMuted)
+    col.addView(toggleRow(R.drawable.ic_bolt, t.accentPrimary, "Background service", svcSwitchRow, svcSwitch))
+
+    autoSwitch = Maniflow.toggle(this, Store.autostart(this)) { checked -> Store.setAutostart(this, checked) }
+    col.addView(
+        toggleRow(
+            R.drawable.ic_log, t.flowTintBlue, "Start on boot",
+            Maniflow.text(this, "restart engine after reboot", 12f, t.textMuted),
+            autoSwitch,
+            showDivider = false
+        )
+    )
+    return Maniflow.card(this, col)
+}
+
+private fun MainActivity.permissionsCard(): View {
+    val t = Theme.current
+    val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+    val rootRow = statusRow(R.drawable.ic_terminal, t.flowTintGreen, "Root", "check su binary availability", {
+        RootBridge.checkAsync()
+        handler.postDelayed({ refreshScreen() }, 900)
+    })
+    rootStatusTv = rootRow.second
+    col.addView(rootRow.first)
+
+    val shizukuRow = statusRow(R.drawable.ic_settings, t.flowTintBlue, "Shizuku", "run restricted actions without root (Android 13+)", {
+        com.eventsh.app.engine.ShizukuClient.requestPermission(this)
+        handler.postDelayed({ refreshScreen() }, 900)
+    })
+    shizukuStatusTv = shizukuRow.second
+    col.addView(shizukuRow.first)
+
+    val usageRow = statusRow(R.drawable.ic_log, t.flowTintOrange, "Usage access", "detect foreground app (app triggers)", {
+        startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
+    })
+    usageStatusTv = usageRow.second
+    col.addView(usageRow.first)
+
+    val notifRow = statusRow(R.drawable.ic_notify, t.statPink, "Notification access", "read posted notifications (notify_post)", {
+        startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    })
+    notifStatusTv = notifRow.second
+    col.addView(notifRow.first)
+
+    val overlayRow = statusRow(R.drawable.ic_ai, t.flowTintPurple, "Display over other apps", "background Flash popups", {
+        startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            android.net.Uri.parse("package:$packageName")))
+    })
+    overlayStatusTv = overlayRow.second
+    col.addView(overlayRow.first)
+
+    val exactRow = statusRow(R.drawable.ic_notify, t.flowTintOrange, "Exact alarms", "let alarms fire at the exact time (Android 12+)", {
+        if (Build.VERSION.SDK_INT >= 31) {
+            startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                android.net.Uri.parse("package:$packageName")))
         }
-        val textCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        textCol.addView(UI.text(this, label, 15f, C.text))
-        textCol.addView(subtitle)
-        row.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        sw.setOnCheckedChangeListener { _, _ -> if (!suppressSwitch) onChange?.invoke() }
-        row.addView(sw)
-        return row
-    }
+        handler.postDelayed({ refreshScreen() }, 900)
+    })
+    exactStatusTv = exactRow.second
+    col.addView(exactRow.first)
 
-fun MainActivity.actionRowContent(
-        label: String,
-        subtitle: String,
-        onClick: () -> Unit
-    ): Pair<View, TextView> {
-        val status = UI.text(this, "", 13f, C.textSec)
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), dp(8f), dp(8f), dp(8f))
-            background = UI.rounded(C.card, 10f, C.border, 1f)
-            isClickable = true
-            setOnClickListener { onClick() }
-        }
-        val textCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        textCol.addView(UI.text(this, label, 15f, C.text))
-        textCol.addView(UI.text(this, subtitle, 12f, C.textSec))
-        row.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(status)
-        return row to status
-    }
+    val battRow = statusRow(R.drawable.ic_log, t.statGreen, "Ignore battery optimization", "prevent the OS from killing timers/alarms", {
+        startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            android.net.Uri.parse("package:$packageName")))
+        handler.postDelayed({ refreshScreen() }, 900)
+    })
+    battOptStatusTv = battRow.second
+    col.addView(battRow.first)
+
+    val smsRow = statusRow(R.drawable.ic_send, t.flowTintBlue, "SMS + Phone + Bluetooth", "runtime permissions for events", {
+        requestPermissions(arrayOf(
+            android.Manifest.permission.RECEIVE_SMS,
+            android.Manifest.permission.READ_PHONE_STATE,
+            android.Manifest.permission.BLUETOOTH_CONNECT
+        ), 20)
+    })
+    col.addView(smsRow.first)
+
+    val locRow = statusRow(R.drawable.ic_bolt, t.flowTintGreen, "Location", "geo-fence triggers (ACCESS_FINE_LOCATION)", {
+        requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION), 31)
+    })
+    locStatusTv = locRow.second
+    col.addView(locRow.first)
+    return Maniflow.card(this, col)
+}
+
+private fun MainActivity.dataCard(): View {
+    val t = Theme.current
+    val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    col.addView(statusRow(R.drawable.ic_send, t.flowTintBlue, "Export", "backup profiles + tasks + variables", { exportRules() }).first)
+    col.addView(statusRow(R.drawable.ic_terminal, t.flowTintOrange, "Import", "restore profiles + tasks + variables from backup", { importRules() }).first)
+    return Maniflow.card(this, col)
+}
+
+private fun MainActivity.helpCard(): View {
+    val t = Theme.current
+    val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    col.addView(statusRow(R.drawable.ic_ai, t.statPink, "Help", "every action documented inside the app", { Help.show(this) }).first)
+    return Maniflow.card(this, col)
+}
+
+private fun MainActivity.aboutCard(): View {
+    val t = Theme.current
+    val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    aboutText = Maniflow.text(this, "", 13f, t.textMuted)
+    col.addView(aboutText)
+    return Maniflow.card(this, col)
+}

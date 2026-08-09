@@ -1,30 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Surfaces -->
-    <color name="bg">#0E1218</color>
-    <color name="surface">#161C24</color>
-    <color name="card">#1A212B</color>
-    <color name="card_pressed">#202A36</color>
-    <color name="border">#2A3340</color>
-    <color name="chip_bg">#223048</color>
+    <color name="bg">#04342C</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="card">#FFFFFF</color>
+    <color name="card_pressed">#F4F6F8</color>
+    <color name="border">#E5E7EB</color>
+    <color name="chip_bg">#E6F4F0</color>
 
     <!-- Brand / accent -->
-    <color name="primary">#00E676</color>
-    <color name="primary_dark">#00C853</color>
-    <color name="primary_soft">#123823</color>
-    <color name="on_primary">#06281A</color>
-    <color name="accent">#00BFA5</color>
+    <color name="primary">#1D9E75</color>
+    <color name="primary_dark">#0F7A57</color>
+    <color name="primary_soft">#E6F4F0</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="accent">#1D9E75</color>
 
     <!-- Text -->
-    <color name="text_primary">#E6EDF3</color>
-    <color name="text_secondary">#9AA7B4</color>
-    <color name="text_hint">#5C6B7A</color>
+    <color name="text_primary">#101828</color>
+    <color name="text_secondary">#667085</color>
+    <color name="text_hint">#98A2B3</color>
 
     <!-- Status -->
-    <color name="warning">#FFB020</color>
-    <color name="danger">#FF4D5E</color>
-    <color name="ok">#2ECC71</color>
-    <color name="disabled">#3A4652</color>
+    <color name="warning">#F97316</color>
+    <color name="danger">#F04438</color>
+    <color name="ok">#22C55E</color>
+    <color name="disabled">#D0D5DD</color>
 
     <!-- Legacy terminal palette (kept for the retired TerminalView renderer) -->
     <color name="terminal_bg">#040A06</color>
